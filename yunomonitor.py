@@ -1,5 +1,24 @@
 #!/usr/bin/python3
 
+""" License
+
+    Copyright (C) 2019 YunoHost
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published
+    by the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program; if not, see http://www.gnu.org/licenses
+
+"""
+
 import sys
 import getopt
 import os
@@ -17,6 +36,7 @@ import dns.resolver
 import dbus
 import shutil
 import hashlib
+from requests_toolbelt.adapters import host_header_ssl
 from threading import Thread
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -94,7 +114,6 @@ DEFAULT_BLACKLIST = [
 # =============================================================================
 
 # Find the current host
-ip = {'v4': True, 'v6': True}
 monitoring_servers = set()
 
 # =============================================================================
@@ -102,7 +121,12 @@ monitoring_servers = set()
 # =============================================================================
 # CORE FUNCTIONS
 # =============================================================================
-
+class GetAttr(type):
+    def __getitem__(cls, x):
+        return getattr(cls, x)
+class IP(object, metaclass=GetAttr):
+    v4 = True
+    v6 = True
 
 def display_help(error=0):
     print('yunomonitor.py [YUNODOMAIN ...] [-m MAIL ...] [-s SMS_API ...] [-c CACHET_API ...]')
@@ -138,9 +162,9 @@ def main(argv):
         monitored_servers = ['localhost']
 
     # If we are offline in IPv4 and IPv6 execute only local checks
-    ip['v4'] = not check_ping("wikipedia.org", ['v4'])
-    ip['v6'] = socket.has_ipv6 and not check_ping("wikipedia.org", ['v6'])
-    if not ip['v4'] and not ip['v6']:
+    IP.v4 = not check_ping("wikipedia.org", ['v4'])
+    IP.v6 = socket.has_ipv6 and not check_ping("wikipedia.org", ['v6'])
+    if not IP.v4 and not IP.v6:
         logging.debug('No connexion')
         if 'localhost' not in monitored_servers:
             sys.exit(2)
@@ -161,6 +185,20 @@ def main(argv):
     trigger_actions(ServerMonitor.failures_report, ServerMonitor.ynh_maps,
                     mails, sms_apis, cachet_apis)
 
+def detect_internet_protocol():
+    global ip
+    IP.v4 = not check_ping("wikipedia.org", ['v4'])
+
+    IP.v6 = socket.has_ipv6
+    no_pingv6 = check_ping("wikipedia.org", ['v6'])
+    IP.v6 = IP.v6 and not no_pingv6
+
+def set_ip_state(ipv4=None, ipv6=None):
+    global ip
+    if ipv4 is not None:
+        IP.v4 = ipv4
+    if ipv6 is not None:
+        IP.v6 = ipv6
 
 class ServerMonitor(Thread):
     """Thread to monitor one server."""
@@ -360,7 +398,7 @@ def generate_monitoring_config():
         domains = [path[18:-5] for path in domains]
         
         with open('/etc/resolv.dnsmasq.conf', 'r') as resolv_file:
-            dns_resolver = [x[11:] for x in resolv_file.readlines()]
+            dns_resolver = [x[11:].replace('\n', '') for x in resolv_file.readlines()]
 
         # TODO personalize meta components
         apps = [
@@ -408,7 +446,7 @@ def generate_monitoring_config():
 
         ]
 
-        apps_dir = glob.glob('/etc/yunohost/apps')
+        apps_dir = glob.glob('/etc/yunohost/apps/*')
 
         for app_dir in apps_dir:
             with open(os.path.join(app_dir, 'settings.yml'), 'r') as settings_file:
@@ -444,13 +482,13 @@ def generate_monitoring_config():
 
             app = {
                 "id": app_settings['id'],
-                "name": app_settings['name'],
+                "name": app_manifest['name'],
                 "label": app_settings['label'],
                 "uris": uris,
                 "services": app_manifest['services']
             }
-            if app_settings['name'] in ["Borg", "Archivist"]:
-                if app_settings['name'] == "Archivist" or app_settings['apps'] == 'all':
+            if app['name'] in ["Borg", "Archivist"]:
+                if app['name'] == "Archivist" or app_settings['apps'] == 'all':
                     app['backup'] = [x[19:] for x in apps_dir]
                 else:
                     app['backup'] = app_settings['apps'].split(',')
@@ -461,7 +499,7 @@ def generate_monitoring_config():
     
     # List all non removable disks
     devices = set()
-    for path in glob('/sys/block/*/device/block/*/removable'):
+    for path in glob.glob('/sys/block/*/device/block/*/removable'):
         disk_name = path.split('/')[2]
         with open(path) as f:
             if f.read(1) == '0':
@@ -508,17 +546,33 @@ def check_ping(hostname, proto=['v4', 'v6']):
     cmd = "ping -%s -c 1 -w 500 %s >/dev/null 2>&1"
     errors = []
     for protocol in proto:
-        if ip[protocol]:
+        if IP[protocol]:
             if all(os.system(cmd % (protocol[1:], hostname)) != 0 for retry in range(3)):
-                errors.append('NO_IPV%d_PING' % protocol[1:])
+                errors.append('NO_IPV%s_PING' % protocol[1:])
         elif protocol == 'v6':
             logging.debug('No IPv6 connexion, can\'t check HTTP on IPv6')
     return errors
 
-def check_https_200(url, accept_redirection=False):
+
+class MySSLContext(ssl.SSLContext):
+    def __new__(cls, server_hostname):
+            return super(MySSLContext, cls).__new__(cls, ssl.PROTOCOL_SSLv23)
+
+    def __init__(self, server_hostname):
+            super(MySSLContext, self).__init__(ssl.PROTOCOL_SSLv23)
+            self._my_server_hostname = server_hostname
+
+    def change_server_hostname(self, server_hostname):
+            self._my_server_hostname = server_hostname
+
+    def wrap_socket(self, *args, **kwargs):
+            kwargs['server_hostname'] = self._my_server_hostname
+            return super(MySSLContext, self).wrap_socket(*args, **kwargs)
+
+def check_https_200(url):
     # Return no errors in case the monitoring server has no connexion
-    if not ip['v4'] and not ip['v6']:
-        logging.debug('No connexion, can\'t check HTTP')
+    if not IP.v4 and not IP.v6:
+        logging.warning('No connexion, can\'t check HTTP')
         return []
     
     # Find all ips configured for the domain of the URL
@@ -526,7 +580,7 @@ def check_https_200(url, accept_redirection=False):
     domain = split_uri[0]
     path = '/' + '/'.join(split_uri[1:]) if len(split_uri) > 1 else '/'
     try:
-        addrs = socket.getaddrinfo(domain, 443)
+        addrs = socket.getaddrinfo(domain, None)
     except socket.gaierror:
         return ['DOMAIN_UNCONFIGURED']
     addrs = {
@@ -534,8 +588,8 @@ def check_https_200(url, accept_redirection=False):
         'v6': {addr[4][0] for addr in addrs if addr[0] == socket.AF_INET6}
     }
     
-    if not ip['v4'] and not addrs['v6']:
-        logging.debug('No connexion, can\'t check HTTP')
+    if not IP.v4 and not addrs['v6']:
+        logging.warning('No connexion, can\'t check HTTP')
         return []
     
     # Error if no ip v4 address match with the domain
@@ -543,19 +597,27 @@ def check_https_200(url, accept_redirection=False):
     if not addrs['v4']:
         errors.append('DOMAIN_MISCONFIGURED_IN_IPV4')
     
-    for protocol in ip.keys():
-        if ip[protocol] and addrs[protocol]:
+    for protocol in ['v4', 'v6']:
+        if IP[protocol] and addrs[protocol]:
 
             # Try to do the request for each ips
             for addr in addrs[protocol]:
+                if protocol == 'v6':
+                    addr = '[' + addr + ']'
                 try:
-                    r = requests.get("https://" + addr + path, 
+
+                    session = requests.Session()
+                    adapter = host_header_ssl.HostHeaderSSLAdapter()
+                    context = MySSLContext(domain)
+                    adapter.init_poolmanager(10, 10, ssl_context=context)
+                    session.mount('https://', adapter)
+                    r = session.get("https://" + addr + path, 
                                      headers={'Host': domain}, 
                                      timeout=HTTP_TIMEOUT)
                 except requests.exceptions.SSLError as e:
                     errors.append(('CERTIFICATE_VERIFY_FAILED', {'msg': str(e)}))
                 except (requests.exceptions.ConnectionError,
-                        requests.exceptions.ConnectionTimeout) as e:
+                        requests.exceptions.ConnectTimeout) as e:
                     errors.append(('PORT_CLOSED_OR_SERVICE_DOWN', {'ip': addr, 'msg': str(e)}))
                 except (requests.exceptions.Timeout,
                         requests.exceptions.ReadTimeout) as e:
@@ -565,26 +627,28 @@ def check_https_200(url, accept_redirection=False):
                 except Exception as e:
                     errors.append(('UNKNOWN_ERROR', {'ip': addr, 'msg': str(e)}))
                 else:
-                    if r.status_code != 200 and \
-                       (not accept_redirection or str(r.status_code)[:1] != '3'):
-                        errors.append(('HTTP_%d' % r.status_code, {'msg': addr}))
-        
+                    if r.status_code != 200:
+                        errors.append(('HTTP_%d' % r.status_code, {'ip': addr}))
+                    elif r.history[0].status_code == 302 and 'yunohost/sso' in r.url:
+                        errors.append(('SSO_CAPTURE', {'ip': addr}))
+                finally:
+                    session.close()
         elif protocol == 'v6' and addrs[protocol]:
             logging.debug('No IPv6 connexion, can\'t check HTTP on IPv6')
 
     return errors
 #HTTP>LABEL
 
-def check_domain_renewed(hostname, port=443):
+def check_domain_renewal(hostname, port=443):
     context = ssl.create_default_context()
-
+    
     with socket.create_connection((hostname, port)) as sock:
         with context.wrap_socket(sock, server_hostname=hostname) as ssock:
             data = ssock.getpeercert()
             notAfter = datetime.strptime(data['notAfter'], '%b %d %H:%M:%S %Y %Z')
             expire_in = notAfter - datetime.now()
             if expire_in < timedelta(14):
-                return ['CERT_RENEWED_FAILED', {'remaining_days': expire_in.days}]
+                return [('CERT_RENEWAL_FAILED', {'remaining_days': expire_in.days})]
     return []
 #CERT>LABEL|DOMAIN
 
@@ -592,8 +656,8 @@ def check_domain_renewed(hostname, port=443):
 def check_dns_resolver(resolver=None, hostname='wikipedia.org', qname='A', expected_results=None):
     if resolver is None:
         my_resolver = dns.resolver
-    elif (not ip['v4'] and '.' in resolver) or \
-         (not ip['v6'] and ':' in resolver):
+    elif (not IP.v4 and '.' in resolver) or \
+         (not IP.v6 and ':' in resolver):
         logging.debug('No connexion in this protocol to test the resolver')
         return []
     else:
@@ -621,7 +685,7 @@ def check_smtp(hostname, ports=[25, 587], blacklist=True):
     # TODO check spf
     # TODO check dkim
     # Return no errors in case the monitoring server has no connexion
-    if not ip['v4'] and not ip['v6']:
+    if not IP.v4 and not IP.v6:
         logging.debug('No connexion, can\'t check HTTP')
         return []
     
@@ -672,11 +736,11 @@ def check_smtp(hostname, ports=[25, 587], blacklist=True):
                         pass
                     errors.append(('BLACKLISTED', {'ip': mx_ip, 'rbl': bl, 'rbl_description': description, 'txt': reason_or_link}))
 
-            if not ip['v4'] and '.' in mx_ip:
+            if not IP.v4 and '.' in mx_ip:
                 logging.debug('No IPv4 connexion, can\'t check SMTP %s' % mx_ip)
                 continue
             
-            if not ip['v6'] and ':' in mx_ip:
+            if not IP.v6 and ':' in mx_ip:
                 logging.debug('No IPv6 connexion, can\'t check SMTP %s' % mx_ip)
                 continue
 
@@ -891,7 +955,7 @@ def trigger_actions(failures, ynh_maps, mails, sms_apis, cachet_apis):
             for target, reports in targets.items():
                 alerts[server][category][target] = [r for r in reports.items() if r[1]["count"] % ALERT_FREQUENCY == 0]
     
-    if ip['v4'] or ip['v6']:
+    if IP.v4 or IP.v6:
         mail_alert(alerts, ynh_maps, mails)
         #sms_alert(alerts, ynh_maps, sms_apis)
         #cachet_alert(alerts, ynh_maps, cachet_apis)
