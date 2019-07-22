@@ -46,6 +46,19 @@ class TestCheck(unittest.TestCase):
         detect_internet_protocol()
         ipvx = IP.v4 or IP.v6
 
+class TestServerMonitor(TestCheck):
+    def test_ok(self):
+        monitored_servers = ['localhost', 'ynh.local']
+        threads = [ServerMonitor(server, ['ynh.local']) for server in monitored_servers]
+        for thread in threads:
+            thread.start()
+    
+        alerts = {}
+        # Wait for all thread
+        for thread in threads:
+            thread.join()
+            alerts[thread.server] = thread.failures
+
 class TestEncryption(TestCheck):
     def test_encrypt_decrypt(self):
         from shutil import copyfile

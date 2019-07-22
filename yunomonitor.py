@@ -214,10 +214,10 @@ ping:
         messages:
             - some.domain.tld no ipv4 ping
 """
-CONFIG_DIR = "/etc/yunomonitor"
-MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "/%s.yml")
-CACHE_MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "/%s.cache.yml")
-FAILURES_FILE = os.path.join(CONFIG_DIR, "/%s.failures.yml")
+CONFIG_DIR = "/etc/yunomonitor/"
+MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "%s.yml")
+CACHE_MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "%s.cache.yml")
+FAILURES_FILE = os.path.join(CONFIG_DIR, "%s.failures.yml")
 
 MAIL_SUBJECT = "[{level}][{server}] {message}: {target}"
 MAIL_BODY = """{admin_info}
@@ -261,8 +261,6 @@ DEFAULT_BLACKLIST = [
 # GLOBAL VARS
 # =============================================================================
 
-# Find the current host
-monitoring_servers = set()
 
 # =============================================================================
 
@@ -299,6 +297,7 @@ def main(argv):
     mails = set()
     sms_apis = set()
     cachet_apis = set()
+    monitoring_servers = set()
     for opt, arg in opts:
         if opt == '-h':
             display_help()
@@ -326,7 +325,7 @@ def main(argv):
 
     # Load or download monitoring description of each server, convert
     # monitoring instructions, execute it
-    threads = [ServerMonitor(server) for server in monitored_servers]
+    threads = [ServerMonitor(server, monitoring_servers) for server in monitored_servers]
     for thread in threads:
         thread.start()
     
@@ -368,9 +367,10 @@ class ServerMonitor(Thread):
     """Thread to monitor one server."""
     ynh_maps = {}
 
-    def __init__(self, server):
+    def __init__(self, server, monitoring_servers):
         Thread.__init__(self)
         self.server = server
+        self.monitoring_servers = monitoring_servers
         self.failures = {}
 
     def run(self):
@@ -407,7 +407,7 @@ class ServerMonitor(Thread):
                 config = generate_monitoring_config()
                 
                 # Encrypt and publish to let the monitoring server to download it
-                for mserver in monitoring_servers:
+                for mserver in self.monitoring_servers:
                     with open(PUBLISHED_MONITORING_CONFIG_FILE % get_id_host(mserver), 'wb') as publish_config_file:
                         publish_config_file.write(encrypt(config, mserver))
             
@@ -418,7 +418,7 @@ class ServerMonitor(Thread):
                 try:
                     r = requests.get(config_url, timeout=15)
                 except Exception as e:
-                    pass
+                    r = None
                 if r is None or r.status_code != 200 and os.path.exists(cache_config):
                     logging.warning('Unable to download autoconfiguration file, the old one will be used')
                     with open(cache_config, 'r') as cache_config_file:
@@ -439,19 +439,13 @@ class ServerMonitor(Thread):
         
         # Remove checks that run on another machine
         if self.server == 'localhost':
-            del to_monitor['ping']
-            del to_monitor['https_200']
-            del to_monitor['dns_resolver']
-            del to_monitor['smtp']
-            del to_monitor['imap']
-            del to_monitor['xmpp']
-            del to_monitor['no_blacklist']
+            checks = ['ping', 'domain_renewal', 'https_200', 'dns_resolver', 'smtp', 'imap', 'xmpp']
         else:
-            del to_monitor['dns_resolution']
-            del to_monitor['service_up']
-            del to_monitor['backuped']
-            del to_monitor['disk_health']
-            del to_monitor['free_space']
+            checks = ['dns_resolution', 'service_up', 'backuped', 'disk_health', 'free_space']
+
+        for check in checks:
+            if check in to_monitor:
+                del to_monitor[check]
 
         # Check things to monitor
         for category, checks in to_monitor.items():
@@ -486,8 +480,8 @@ class ServerMonitor(Thread):
 
             for report in reports:
                 r = next((x for x in self.failures[message]
-                          if x.target == report.target))
-                r.count += report.count
+                          if x['target'] == report['target']))
+                r['count'] += report['count']
         
     def _add_remote_failures(self):
         if self.server == 'localhost':
@@ -512,6 +506,7 @@ class ServerMonitor(Thread):
     
     
     def _save(self):
+        failures_file = FAILURES_FILE % (self.server)
         # Save failures in /etc file
         with open(failures_file, "w") as f:
             json.dump(self.failures, f)
@@ -519,7 +514,7 @@ class ServerMonitor(Thread):
 
     def _publish(self):
         # Publish failures
-        for mserver in monitoring_servers:
+        for mserver in self.monitoring_servers:
             with open(PUBLISHED_FAILURES_FILE % get_id_host(mserver), "wb") as f:
                 f.write(encrypt(json.dumps(self.failures), mserver))
 
@@ -681,17 +676,16 @@ def generate_monitoring_config():
     
     # List all non removable disks
     devices = _get_devices()
-    
+    domains = list(set(domains))
     return {
-        "ping": set(domains),
-        "smtp": set(domains),
-        "domain_renewed": set(domains),
-        "imap": set(domains),
-        "xmpp": set(domains),
-        "dns_resolver": set(dns_resolver),
-        "dns_resolution": True,
-        "disk_health": set(devices),
-        "free_space": {"warning": 1500, "danger": 500},
+        "ping": domains,
+        "domain_renewal": domains,
+        "smtp": domains,
+        "imap": domains,
+        "xmpp": domains,
+        "dns_resolver": list(set(dns_resolver)),
+        "disk_health": list(set(devices)),
+        "free_space": [{}],
         "https_200": https_200,
         "service_up": service_up,
         "backuped": backuped,
