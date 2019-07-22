@@ -41,6 +41,7 @@ This script is designed to run with these dependencies:
 * python3-yaml
 * python3-dnspython
 * python3-requests-toolbelt
+* whois
 * an SMTP server running on the machine
 
 If you want to use the autoconfiguration mechanism, you need to configure on nginx a HTTPS `.well-known/yunomonitor/` path. You need also in this case to have on monitoring server a ssh key on /etc/ssh/ssh_host_rsa_key
@@ -52,20 +53,74 @@ Here is a list of all checks methods. Each method return a list of small message
 NO_IPV4_PING: 
 NO_IPV6_PING:
 
-### https_200
-DOMAIN_UNCONFIGURED:
-DOMAIN_MISCONFIGURED_IN_IPV4:
-CERTIFICATE_VERIFY_FAILED, msg:
-PORT_CLOSED_OR_SERVICE_DOWN, ip, msg:
-TIMEOUT, ip, msg:
-TOO_MANY_REDIRECTS, ip, msg:
-SSO_CAPTURE:
-UNKNOWN_ERROR, ip, msg:
-HTTP_XXX, msg:
+### ip_address
+C_DOMAIN_UNCONFIGURED
+C_DOMAIN_UNCONFIGURED_IN_IPV4
+I_DOMAIN_UNCONFIGURED_IN_IPV6
 
-### domain_renewed
-CERT_RENEWAL_FAILED
+### tls(ip_address)
+E_CERT_RENEWED_FAILED
+C_CERT_INVALID
+C_PORT_CLOSED_OR_SERVICE_DOWN
 
+### https_200(tls)
+C_TIMEOUT, ip, msg:
+C_TOO_MANY_REDIRECTS, ip, msg:
+C_SSO_CAPTURE:
+C_UNKNOWN_ERROR, ip, msg:
+C_HTTP_XXX, msg:
+
+### domain_renewal
+I_DOMAIN_EXPIRATION_NOT_FOUND
+W_DOMAIN_WILL_EXPIRE
+E_DOMAIN_NEARLY_EXPIRE
+C_DOMAIN_EXPIRE
+
+### dns_resolver
+C_BROKEN_NAMESERVER
+C_TIMEOUT
+C_DOMAIN_UNCONFIGURED
+C_NO_ANSWER
+C_UNEXPECTED_ANSWER
+
+### smtp
+E_NO_MX_RECORD
+C_DOMAIN_UNCONFIGURED
+C_REVERSE_MISSING
+C_REVERSE_MISMATCH
+C_BLACKLISTED
+E_CERT_RENEWED_FAILED
+C_PORT_CLOSED_OR_SERVICE_DOWN
+
+### imap
+### pop
+### xmpp
+### dns_resolution(dns_resolver)
+### service_up
+C_NOT_FOUND
+C_DOWN
+C_FAILED
+
+### disk_health
+W_SMART_NOT_SUPPORTED
+E_SMART_DISABLED
+E_SMART_HALF_WORKING
+C_DISK_FAILURE
+
+### free_space
+C_FREE_SPACE
+E_FREE_SPACE
+W_FREE_SPACE
+
+### backuped
+E_NEVER_BACKUP
+E_MISSING_BACKUP
+E_BACKUP_NOT_TRIGGERED
+E_BACKUP_BROKEN
+
+### ynh_upgrade
+W_APP_NEED_UPGRADE
+W_PKG_NEED_UPGRADE
 
 ## Alerts
 ### Mail alerts

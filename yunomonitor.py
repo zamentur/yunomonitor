@@ -36,6 +36,8 @@ import dns.resolver
 import dbus
 import shutil
 import hashlib
+import re
+import urllib
 from requests_toolbelt.adapters import host_header_ssl
 from threading import Thread
 from cryptography import x509
@@ -50,6 +52,147 @@ from datetime import datetime, timedelta
 
 # Every 8 minutes
 CRON_FREQUENCY = 8
+
+MONITORING_ERRORS = {
+    'NO_PING': {'level': 'critical', 'first': 3, 'frequency': 3, 
+                'user': 'Le serveur est éteint ou injoignable',
+                'admin': "Le serveur '{domain}' est éteint ou injoignable"},
+    'NO_IPV4_PING': {'level': 'critical', 'first': 3, 'frequency': 3, 
+                'user': "Le serveur est injoignable pour certains équipements",
+                'admin': "Le serveur '{domain}' est injoignable en ipv4"},
+    'NO_IPV6_PING': {'level': 'critical', 'first': 3, 'frequency': 3, 
+                'user': 'Le serveur est injoignable pour certains équipements',
+                'admin': "Le serveur '{domain}' est injoignable en ipv6"},
+    'DOMAIN_UNCONFIGURED': {'level': 'critical', 'first': 2, 'frequency': 3, 
+                'user': "Le service n’est pas joignable car le nom de domaine {domain} n’est pas correctement configuré.",
+                'admin': "Le nom de domaine {domain} n’est pas configuré."},
+    'DOMAIN_UNCONFIGURED_IN_IPV4': {'level': 'critical', 'first': 2, 'frequency': 3, 
+                'user': "Le service n’est pas joignable par certains équipements car le nom de domaine {domain} n’est pas correctement configuré.",
+                'admin': "Le nom de domaine {domain} n’est pas configuré pour ipv4. Beaucoup d’équipements ne pourront pas y accéder."},
+    'DOMAIN_UNCONFIGURED_IN_IPV6': {'level': 'info', 'first': 2, 'frequency': 3, 
+                'user': "",
+                'admin': "Le service n'est pas configuré en IPv6."},
+    'CERT_RENEWAL_FAILED': {'level': 'error', 'first': 1, 'frequency': 3, 
+                'user': "Le renouvellement du certificat {protocol} de {domain} a échoué ou n’est pas pris en compte, sans intervention le service tombera en panne dans {days} jours",
+                'admin': "Le renouvellement du certificat {protocol} de {domain} a échoué ou n’est pas pris en compte, sans intervention le service tombera en panne dans {days} jours"},
+    'CERT_INVALID': {'level': 'critical', 'first': 1, 'frequency': 3, 
+                'user': "Le service n’est pas joignable car le certificat de sécurité a expiré ou n’est pas accepté. Note: si l’adresse web auquel vous voulez accéder est une page publique (sans authentification), il est possible d’y accéder en navigation privée, en ajoutant une exception.",
+                'admin': "Le service n’est pas joignable car le certificat de sécurité a expiré ou n’est pas accepté. Note: si l’adresse web auquel vous voulez accéder est une page publique (sans authentification), il est possible d’y accéder en navigation privée, en ajoutant une exception."},
+    'PORT_CLOSED_OR_SERVICE_DOWN': {'level': 'critical', 'first': 2, 'frequency': 3, 
+                'user': "Le service n’est pas joignable",
+                'admin': "Le service n’est pas joignable"},
+    'TIMEOUT': {'level': 'critical', 'first': 3, 'frequency': 3, 
+                'user': "Le service n’est pas joignable",
+                'admin': "Le service n’est pas joignable"},
+    'TOO_MANY_REDIRECTS': {'level': 'critical', 'first': 2, 'frequency': 3, 
+                'user': "Le service semble en panne",
+                'admin': "Le service est en panne suite à une erreur de redirection."},
+    'SSO_CAPTURE': {'level': 'critical', 'first': 2, 'frequency': 3, 
+                'user': "Le service semble en panne",
+                'admin': "Le service semble protégé par le SSO"},
+    'HTTP_403': {'level': 'critical', 'first': 2, 'frequency': 3, 
+                'user': "Le service semble en panne",
+                'admin': "Le service est interdit d'accès"},
+    'HTTP_404': {'level': 'critical', 'first': 2, 'frequency': 3, 
+                'user': "Le service semble en panne",
+                'admin': "Le service renvoie une erreur 404 page non trouvée"},
+    'HTTP_500': {'level': 'critical', 'first': 2, 'frequency': 3, 
+                'user': "Le service semble en panne",
+                'admin': "Le service est en panne suite à une erreur logicielle."},
+    'HTTP_502': {'level': 'critical', 'first': 2, 'frequency': 3, 
+                'user': "Le service semble en panne",
+                'admin': "Le service s’est eteint"},
+    'DOMAIN_EXPIRATION_NOT_FOUND': {'level': 'info', 'first': 1, 'frequency': 180, 
+                'user': "",
+                'admin': ""},
+    'DOMAIN_WILL_EXPIRE': {'level': 'warning', 'first': 1, 'frequency': 180, 
+                'user': "Le nom de domaine {domain} expire dans {days} jours. Ne pas oublier de le renouveller.",
+                'admin': "Le nom de domaine {domain} expire dans {days} jours. Ne pas oublier de le renouveller."},
+    'DOMAIN_NEARLY_EXPIRE': {'level': 'error', 'first': 1, 'frequency': 180, 
+                'user': "Le nom de domaine {domain} expire dans {days} jours. Sans renouvellement le service ne fonctionnera plus.",
+                'admin': "Le nom de domaine {domain} expire dans {days} jours. Sans renouvellement le service ne fonctionnera plus."},
+    'DOMAIN_EXPIRE': {'level': 'critical', 'first': 3, 'frequency': 30, 
+                'user': "Le nom de domaine {domain} expire aujourd’hui ou demain. Sans renouvellement le service ne fonctionnera plus.",
+                'admin': "Le nom de domaine {domain} expire aujourd’hui ou demain. Sans renouvellement le service ne fonctionnera plus."},
+    'BROKEN_NAMESERVER': {'level': 'critical', 'first': 3, 'frequency': 3, 
+                'user': "Un problème de connectivité interne pourrait créer des dysfonctionnements",
+                'admin': "Le serveur de nom à l’adresse {ip} est injoignable"},
+    'TIMEOUT': {'level': 'critical', 'first': 3, 'frequency': 3, 
+                'user': "Un problème de connectivité interne pourrait créer des dysfonctionnements",
+                'admin': "Le serveur de nom à l’adresse {ip} est trop lent"},
+    'NO_ANSWER': {'level': 'critical', 'first': 2, 'frequency': 3, 
+                'user': "Le service n’est pas joignable car le nom de domaine {domain} n’est pas correctement configuré.",
+                'admin': "Le nom de domaine {domain} n’est pas configuré."},
+    'UNEXPECTED_ANSWER': {'level': 'critical', 'first': 1, 'frequency': 3, 
+                'user': "",
+                'admin': ""},
+    'NO_MX_RECORD': {'level': 'error', 'first': 1, 'frequency': 3, 
+                'user': "Un problème de configuration des mails a été détecté. Certains mails pourraient tombés en SPAM.",
+                'admin': "Aucune configuration MX pour le domaine {domain}. Certains mails pourraient être calssé en SPAM."},
+    'REVERSE_MISSING': {'level': 'critical', 'first': 1, 'frequency': 3, 
+                'user': "Un problème de configuration des mails a été détecté. Certains mails pourraient tombés en SPAM.",
+                'admin': "Le DNS inversé n’a pas été configuré pour l’ip {ip} et le domaine {domain}. Le serveur pourraient être blacklisté et certains mails pourraient être classé en SPAM"},
+    'REVERSE_MISMATCH': {'level': 'critical', 'first': 1, 'frequency': 3, 
+                'user': "Un problème de configuration des mails a été détecté. Certains mails pourraient tombés en SPAM.",
+                'admin': "Le DNS inversé pour l’ip {ip} est configuré pour le domaine {domain1} au lieu de domaine {domain2}. Le serveur pourraient être blacklisté et certains mails pourraient être classé en SPAM"},
+    'BLACKLISTED': {'level': 'critical', 'first': 1, 'frequency': 3, 
+                'user': "L’ip du serveur a été blacklistée par {rbl}. Certains mails pourraient tombés en SPAM.",
+                'admin': "L’ip du serveur a été blacklistée par {rbl}. Certains mails pourraient tombés en SPAM."},
+    'NOT_FOUND': {'level': 'critical', 'first': 1, 'frequency': 3, 
+                'user': "Un des programmes est en panne, des dysfonctionnements sur le service peuvent subvenir.",
+                'admin': "Le service {service} n’existe pas"},
+    'DOWN': {'level': 'critical', 'first': 2, 'frequency': 3, 
+                'user': "Un des programmes est en panne, des dysfonctionnements sur le service peuvent subvenir.",
+                'admin': "Le service {service} est éteint il devrait être allumé."},
+    'FAILED': {'level': 'critical', 'first': 2, 'frequency': 3, 
+                'user': "Un des programmes est en panne, des dysfonctionnements sur le service peuvent subvenir.",
+                'admin': "Le service {service} est tombé en panne il faut le relancer et investiguer."},
+    'SMART_NOT_SUPPORTED': {'level': 'warning', 'first': 1, 'frequency': 3, 
+                'user': "",
+                'admin': "Un disque dur ne supporte pas les fonctionnalités permétant le contrôle de son état de santé."},
+    'SMART_DISABLED': {'level': 'error', 'first': 1, 'frequency': 3, 
+                'user': "L’activation du contrôle de l’état de santé d’un disque dur n’a pas fonctionné.",
+                'admin': "L’activation du contrôle de l’état de santé d’un disque dur n’a pas fonctionné."},
+    'SMART_HALF_WORKING': {'level': 'error', 'first': 1, 'frequency': 3, 
+                'user': "Le contrôle de l’état de santé d’un disque dur n’est que partiellement activé.",
+                'admin': "Le contrôle de l’état de santé d’un disque dur n’est que partiellement activé."},
+    'DISK_FAILURE': {'level': 'critical', 'first': 1, 'frequency': 3, 
+                'user': "Un disque dur semble sur le point de tomber en panne, il faut le changer rapidement.",
+                'admin': "Un disque dur semble sur le point de tomber en panne, il faut le changer rapidement."},
+    'NO_FREE_SPACE': {'level': 'critical', 'first': 1, 'frequency': 3, 
+                'user': "Il n’y a plus d’espace disque sur le serveur des dysfonctionnements sont à prévoir",
+                'admin': "Il n’y a plus d’espace disque sur le serveur des dysfonctionnements sont à prévoir"},
+    'C_FREE_SPACE': {'level': 'critical', 'first': 1, 'frequency': 3, 
+                'user': "L’espace disque sur le serveur est trop faible, si rien n’est fait rapidement des dysfonctionnements sont à prévoir",
+                'admin': "L’espace disque sur le serveur est trop faible, si rien n’est fait rapidement des dysfonctionnements sont à prévoir"},
+    'E_FREE_SPACE': {'level': 'error', 'first': 1, 'frequency': 3, 
+                'user': "L’espace disque sur le serveur est trop faible, si rien n’est fait des dysfonctionnements pourraient subvenir",
+                'admin': "L’espace disque sur le serveur est trop faible, si rien n’est fait des dysfonctionnements pourraient subvenir"},
+    'W_FREE_SPACE': {'level': 'warning', 'first': 1, 'frequency': 3, 
+                'user': "",
+                'admin': "L’espace disque sur le serveur est assez réduit."},
+    'NO_BACKUP': {'level': 'error', 'first': 2, 'frequency': 3, 
+                'user': "Aucune sauvegarde [de {app}] n’a été trouvée sur le serveur de [sauvegarde à paris].",
+                'admin': "Aucune sauvegarde [de {app}] n’a été trouvée sur le serveur de [sauvegarde à paris]."},
+    'MISSING_BACKUP': {'level': 'error', 'first': 2, 'frequency': 3, 
+                'user': "La dernière sauvegarde [de {app}] sur le serveur de [sauvegarde à paris] est manquante. ",
+                'admin': "La dernière sauvegarde [de {app}] sur le serveur de [sauvegarde à paris] est manquante. "},
+    'BACKUP_NOT_TRIGGERED': {'level': 'error', 'first': 2, 'frequency': 3, 
+                'user': "La sauvegarde vers le serveur de sauvegarde à paris n’a pas été déclenchée au cours des dernières 24h.",
+                'admin': "La sauvegarde vers le serveur de sauvegarde à paris n’a pas été déclenchée au cours des dernières 24h."},
+    'BACKUP_BROKEN': {'level': 'error', 'first': 2, 'frequency': 3, 
+                'user': "La dernière sauvegarde [de {app}] sur le serveur de sauvegarde à paris est incomplète. Une restauration manuelle resterait peut être possible.",
+                'admin': "La dernière sauvegarde [de {app}] sur le serveur de sauvegarde à paris est incomplète. Une restauration manuelle resterait peut être possible."},
+    'APP_NEED_UPGRADE': {'level': 'warning', 'first': 1, 'frequency': 180, 
+                'user': "",
+                'admin': "Une mise à jour est disponible pour l'application {app}"},
+    'PKG_NEED_UPGRADE': {'level': 'warning', 'first': 1, 'frequency': 180, 
+                'user': "",
+                'admin': "Une mise à jour des paquets systèmes est disponible"},
+    'UNKNOWN_ERROR': {'level': 'error', 'first': 3, 'frequency': 3, 
+                'user': "",
+                'admin': "Une erreur non gérée par le système de monitoring est survenue"},
+}
 
 # Trigger actions every 8*3 minutes of failures
 ALERT_FREQUENCY = 3
@@ -76,6 +219,11 @@ MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "/%s.yml")
 CACHE_MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "/%s.cache.yml")
 FAILURES_FILE = os.path.join(CONFIG_DIR, "/%s.failures.yml")
 
+MAIL_SUBJECT = "[{level}][{server}] {message}: {target}"
+MAIL_BODY = """{admin_info}
+
+Extra info: {extra}
+"""
 HTTP_TIMEOUT = 15
 DEFAULT_BLACKLIST = [
         ('zen.spamhaus.org'             , 'Spamhaus SBL, XBL and PBL'        ),
@@ -121,10 +269,13 @@ monitoring_servers = set()
 # =============================================================================
 # CORE FUNCTIONS
 # =============================================================================
-class GetAttr(type):
+class IPMetaClass(type):
     def __getitem__(cls, x):
         return getattr(cls, x)
-class IP(object, metaclass=GetAttr):
+    @property
+    def connected(self):
+        return self.v4 or self.v6
+class IP(object, metaclass=IPMetaClass):
     v4 = True
     v6 = True
 
@@ -139,7 +290,9 @@ def main(argv):
     
     # Parse arguments
     try:
-        opts, monitored_servers = getopt.getopt(argv, "hm:s:c:e:", ["mail=", "sms=", "cachet=", "encrypt-for="])
+        opts, monitored_servers = getopt.getopt(argv, "hm:s:c:e:", 
+                                                ["mail=", "sms=", "cachet=", 
+                                                 "encrypt-for="])
     except getopt.GetoptError:
         display_help(2)
 
@@ -176,14 +329,32 @@ def main(argv):
     threads = [ServerMonitor(server) for server in monitored_servers]
     for thread in threads:
         thread.start()
-   
+    
+    alerts = {}
     # Wait for all thread
     for thread in threads:
         thread.join()
+        alerts[thread.server]=thread.failures
 
-    # Filter by reccurence and trigger some actions
-    trigger_actions(ServerMonitor.failures_report, ServerMonitor.ynh_maps,
-                    mails, sms_apis, cachet_apis)
+    # Filter by reccurence
+    for server, failures in alerts.items():
+        for message, reports in failures.items():
+            first = MONITORING_ERRORS[message]['first']
+            freq = MONITORING_ERRORS[message]['frequency']
+            for report in reports:
+                alerts[server][message] = []
+                if (report['count'] - first) % freq == 0:
+                    report['level'] = MONITORING_ERRORS[message]['level']
+                    alerts[server][message].append(report)
+    
+    # Trigger some actions
+    mail_alert(alerts, mails)
+    sms_alert(alerts, sms_apis)
+    #cachet_alert(alerts, ynh_maps, cachet_apis)
+
+    #if 'localhost' in alerts:
+    #    service_up(alerts['localhost'].get('service_up', []))
+
 
 def detect_internet_protocol():
     global ip
@@ -193,17 +364,9 @@ def detect_internet_protocol():
     no_pingv6 = check_ping("wikipedia.org", ['v6'])
     IP.v6 = IP.v6 and not no_pingv6
 
-def set_ip_state(ipv4=None, ipv6=None):
-    global ip
-    if ipv4 is not None:
-        IP.v4 = ipv4
-    if ipv6 is not None:
-        IP.v6 = ipv6
-
 class ServerMonitor(Thread):
     """Thread to monitor one server."""
     ynh_maps = {}
-    failures_report = {}
 
     def __init__(self, server):
         Thread.__init__(self)
@@ -213,7 +376,10 @@ class ServerMonitor(Thread):
     def run(self):
         self.ynh_maps[self.server] = self._load_monitoring_config()
         self._monitor()
+        self._count()
+        self._add_remote_failures()
         self._save()
+        self._publish()
         
 
     def _load_monitoring_config(self):
@@ -287,63 +453,76 @@ class ServerMonitor(Thread):
             del to_monitor['disk_health']
             del to_monitor['free_space']
 
-        # Download remove failures report
-        if self.server != 'localhost':
-            # Load internal failures
-            url = REMOTE_FAILURES_FILE % (self.server, get_id_host())
-            try:
-                r = requests.get(url, timeout=15)
-            except Exception as e:
-                logging.debug('No failures files', str(e))
-            
-            if r is not None or r.status_code == 200:
-                self.failures = json.load(decrypt(r.content))
-
         # Check things to monitor
         for category, checks in to_monitor.items():
-            if category not in self.failures:
-                self.failures[category] = []
             for args in checks:
-                reports = globals()["check_%s" % (category)](*args)
+                try:
+                    check_name = "check_%s" % (category)
+                    reports = globals()[check_name](*args)
+                except Exception as e:
+                    reports = [('UNKNOWN_ERROR', {'check': category})]
                 for report in reports:
-                    if isinstance(report, basestring):
-                        self.failures[category].append((args[0], report, {}))
-                    elif len(report) == 1:
-                        self.failures[category].append((args[0],) + report + ({},))
-                    else:
-                        self.failures[category].append((args[0],) + report)
+                    if report[0] not in self.failures:
+                        self.failures[report[0]] = []
+                        self.failures[report[0]].append({
+                            'target': report[1],
+                            'count': 1,
+                            'extra': report[2] if len(report) >= 3 else {}
+                        })
 
 
-    def _save(self):
+    def _count(self):
+        # Extract recorded failures
         failures_file = FAILURES_FILE % (self.server)
+        recorded_failures = {}
         if os.path.exists(failures_file):
-            existing_failures = json.loads(open(failures_file).read())
-        else:
-            existing_failures = {}
+            with open(failures_file) as f:
+                recorded_failures = json.load(f)
 
-        updated_failures = {k: {} for k in self.failures.keys()}
+        # Increase counter with recorded failures
+        for message, reports in recorded_failures.items():
+            if message not in self.failures:
+                continue
 
-        for category, reports in self.failures.items():
-            for target, error, data in reports:
-                existing_failure = existing_failures.get(category, {}).get(target, {})
-                count = existing_failure.get("count", 0) + 1
-                messages = existing_failure.get("errors", [])
-                messages = set(messages)
-                messages.add((error, data))
-                updated_failures[category][target] = {
-                    "count": count,
-                    "errors": list(messages)
-                }
+            for report in reports:
+                r = next((x for x in self.failures[message]
+                          if x.target == report.target))
+                r.count += report.count
+        
+    def _add_remote_failures(self):
+        if self.server == 'localhost':
+            return
+        
+        # Load internal failures
+        url = REMOTE_FAILURES_FILE % (self.server, get_id_host())
+        try:
+            r = requests.get(url, timeout=15)
+            if r is not None or r.status_code == 200:
+                internal_failures = json.loads(decrypt(r.content))
+        except Exception as e:
+            logging.debug('No failures files', str(e))
+            internal_failures = {}
 
+        # Add internal recorded failures
+        for message, reports in internal_failures.items():
+            if message not in self.failures:
+                self.failures[message] = reports
+            else:
+                self.failures[message] += reports
+    
+    
+    def _save(self):
+        # Save failures in /etc file
         with open(failures_file, "w") as f:
-            json.dump(updated_failures, f)
+            json.dump(self.failures, f)
 
+
+    def _publish(self):
         # Publish failures
         for mserver in monitoring_servers:
             with open(PUBLISHED_FAILURES_FILE % get_id_host(mserver), "wb") as f:
-                f.write(encrypt(json.dumps(updated_failures), mserver))
+                f.write(encrypt(json.dumps(self.failures), mserver))
 
-        self.failures_report[self.server] = updated_failures
 
 def get_id_host(server=None):
     if not server:
@@ -361,7 +540,7 @@ def encrypt(message, mserver):
     cache_key = '/etc/yunomonitor/%s.pub' % mserver
     if os.path.exists(cache_key):
         with open('/etc/yunomonitor/%s.pub' % mserver) as f:
-            key = RSA.importKey(f.read())
+            key = f.read()
     else:
         try:
             r = requests.get(PUBLIC_KEY_URI % mserver, timeout=15)
@@ -392,7 +571,8 @@ def generate_monitoring_config():
     domains = set()
     is_yunohost = os.path.exists("/etc/yunohost/installed")
     if is_yunohost:
-        current_host = open("/etc/yunohost/current_host").read().strip()
+        with open("/etc/yunohost/current_host") as f:
+            current_host = f.read().strip()
         
         domains = glob.glob('/etc/nginx/conf.d/*.*.conf')
         domains = [path[18:-5] for path in domains]
@@ -406,7 +586,8 @@ def generate_monitoring_config():
                 "id": "mail",
                 "name": "Mail",
                 "label": "Mail",
-                "services": ["postfix", "rspamd", "dovecot", "postsrsd", "dnsmasq", "slapd"]
+                "services": ["postfix", "rspamd", "dovecot", "postsrsd",
+                             "dnsmasq", "slapd"]
             },
             {
                 "id": "xmpp",
@@ -427,7 +608,8 @@ def generate_monitoring_config():
                 "label": "Administration",
                 "uris": ["%s/yunohost/admin/" % (current_host),
                          "%s/yunohost/api/" % (current_host)],
-                "services": ["nginx", "slapd", "ssh", "yunohost-api", "systemd-logind"]
+                "services": ["nginx", "slapd", "ssh", "yunohost-api",
+                             "systemd-logind"]
             },
             {
                 "id": "firewall",
@@ -439,8 +621,8 @@ def generate_monitoring_config():
                 "id": "misc",
                 "name": "Base",
                 "label": "Système de base",
-                "services": ["avahi-daemon", "cron", "dbus", "glances", "haveged", 
-                             "ntp", "rng-tools", "rsyslog", "syslog", 
+                "services": ["avahi-daemon", "cron", "dbus", "glances",
+                             "haveged", "ntp", "rng-tools", "rsyslog", "syslog", 
                              "systemd-journald", "systemd-udevd"]
             }
 
@@ -498,13 +680,7 @@ def generate_monitoring_config():
             apps.append(app)
     
     # List all non removable disks
-    devices = set()
-    for path in glob.glob('/sys/block/*/device/block/*/removable'):
-        disk_name = path.split('/')[2]
-        with open(path) as f:
-            if f.read(1) == '0':
-                devices.add(disk_name)
-
+    devices = _get_devices()
     
     return {
         "ping": set(domains),
@@ -521,6 +697,15 @@ def generate_monitoring_config():
         "backuped": backuped,
         "__components__": apps,
     }
+
+def _get_devices():
+    devices = set()
+    for path in glob.glob('/sys/block/*/device/block/*/removable'):
+        disk_name = path.split('/')[3]
+        with open(path) as f:
+            if f.read(1) == '0':
+                devices.add(disk_name)
+    return list(devices)
 
 
 # =============================================================================
@@ -541,18 +726,104 @@ def generate_monitoring_config():
 # IDEA check average load
 # IDEA Check no attack
 
+def need_connexion(func):
+    def wrapper(*args, **kwargs):
+        # Return no errors in case the monitoring server has no connexion
+        if not IP.connected:
+            return []
+    
+        return func(*args, **kwargs)
+    return wrapper
+
+def run_on_monitored_server(func):
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    return wrapper
+
 # Remote checks
 def check_ping(hostname, proto=['v4', 'v6']):
     cmd = "ping -%s -c 1 -w 500 %s >/dev/null 2>&1"
     errors = []
+    ip = {'v4': IP['v4'], 'v6': IP['v6']}
     for protocol in proto:
         if IP[protocol]:
-            if all(os.system(cmd % (protocol[1:], hostname)) != 0 for retry in range(3)):
-                errors.append('NO_IPV%s_PING' % protocol[1:])
-        elif protocol == 'v6':
-            logging.debug('No IPv6 connexion, can\'t check HTTP on IPv6')
+            ip[protocol] = any(os.system(cmd % (protocol[1:], hostname)) == 0 for retry in range(3))
+    
+    target = {'domain': hostname}
+    if not ip['v4']  and not ip['v6'] and IP['v4'] and IP['v6']:
+        errors.append(('NO_PING', target))
+    elif not ip['v4'] and IP['v4']:
+        errors.append(('NO_IPV4_PING', target))
+    elif not ip['v6'] and IP['v6']:
+        errors.append(('NO_IPV6_PING', target))
+
     return errors
 
+cache = {}
+
+@need_connexion
+def check_ip_address(domain):
+    global cache
+    if domain not in cache:
+        # Find all ips configured for the domain of the URL
+        cache[domain] = {'v4': {}, 'v6': {}}
+        try:
+            addrs = socket.getaddrinfo(domain, None)
+            cache[domain]['v4'] = {addr[4][0]: {}
+                                for addr in addrs if addr[0] == socket.AF_INET}
+            cache[domain]['v6'] = {addr[4][0]: {}
+                                for addr in addrs if addr[0] == socket.AF_INET6}
+        except socket.gaierror:
+            pass
+
+    addrs = cache[domain]
+    if not addrs['v4'] and not addrs['v6']:
+        return [('DOMAIN_UNCONFIGURED', {'domain': domain})]
+
+    if not (IP.v4 and addrs['v4']) and not (IP.v6 and addrs['v6']):
+        logging.warning('No connexion, can\'t check HTTP')
+    
+    # Error if no ip v4 address match with the domain
+    if not addrs['v4']:
+        return [('DOMAIN_MISCONFIGURED_IN_IPV4', 
+                                {'domain': domain})]
+    return []
+@need_connexion
+def check_tls(domain, port=443):
+    errors = check_ip_address(domain)
+
+    to_report = {
+        'CERT_RENEWAL_FAILED': {'v4':{}, 'v6': {}},
+        'CERT_INVALID': {'v4':{}, 'v6': {}},
+        'PORT_CLOSED_OR_SERVICE_DOWN': {'v4':{}, 'v6': {}},
+    }
+    for protocol, addrs in cache[domain].items():
+        if not IP[protocol] or not addrs:
+            continue
+        
+        # Try to do the request for each ips
+        for addr, ports in addrs.items():
+            if port in ports:
+                continue
+            ports[443] = 'working'
+            # Check if TLS is working correctly
+            try:
+                cert = _get_cert_info(domain, addr)
+                notAfter = datetime.strptime(cert['notAfter'], '%b %d %H:%M:%S %Y %Z')
+                expire_in = notAfter - datetime.now()
+                if expire_in < timedelta(days_limit):
+                    to_report['CERT_RENEWAL_FAILED'][protocol][addr] = {'remaining_days': expire_in.days}
+            except ssl.SSLError as e:
+                to_report['CERT_INVALID'][protocol][addr] = {'debug': str(e)}
+                ports[443] = 'notworking'
+            except (ConnectionError, socket.timeout) as e:
+                to_report['PORT_CLOSED_OR_SERVICE_DOWN'][protocol][addr] = {'debug': str(e)}
+                ports[443] = 'notworking'
+            except Exception as e:
+                pass
+    errors += _aggregate_report_by_target(to_report, domain,
+                                          {'domain': domain, 'port': port})
+    return errors
 
 class MySSLContext(ssl.SSLContext):
     def __new__(cls, server_hostname):
@@ -569,91 +840,94 @@ class MySSLContext(ssl.SSLContext):
             kwargs['server_hostname'] = self._my_server_hostname
             return super(MySSLContext, self).wrap_socket(*args, **kwargs)
 
+@need_connexion
 def check_https_200(url):
-    # Return no errors in case the monitoring server has no connexion
-    if not IP.v4 and not IP.v6:
-        logging.warning('No connexion, can\'t check HTTP')
-        return []
-    
     # Find all ips configured for the domain of the URL
     split_uri = url.split('/')
-    domain = split_uri[0]
+    domain_port = split_uri[0].split(':')
+    domain = domain_port[0]
+    port = int(domain_port[1]) if len(domain_port) > 1 else 443
     path = '/' + '/'.join(split_uri[1:]) if len(split_uri) > 1 else '/'
-    try:
-        addrs = socket.getaddrinfo(domain, None)
-    except socket.gaierror:
-        return ['DOMAIN_UNCONFIGURED']
-    addrs = {
-        'v4': {addr[4][0] for addr in addrs if addr[0] == socket.AF_INET},
-        'v6': {addr[4][0] for addr in addrs if addr[0] == socket.AF_INET6}
-    }
     
+    errors = check_tls(domain, port)
+
+    to_report = {msg: {'v4':{}, 'v6': {}} for msg in [
+        'CERT_INVALID',
+        'PORT_CLOSED_OR_SERVICE_DOWN',
+        'TIMEOUT',
+        'TOO_MANY_REDIRECTS',
+        'UNKNOWN_ERROR',
+        'SSO_CAPTURE'] + \
+        ['HTTP_%d' % code for code in range(400, 499)] + \
+        ['HTTP_%d' % code for code in range(500, 599)]
+    }
     if not IP.v4 and not addrs['v6']:
         logging.warning('No connexion, can\'t check HTTP')
         return []
     
-    # Error if no ip v4 address match with the domain
-    errors = []
-    if not addrs['v4']:
-        errors.append('DOMAIN_MISCONFIGURED_IN_IPV4')
-    
-    for protocol in ['v4', 'v6']:
-        if IP[protocol] and addrs[protocol]:
+    for protocol, addrs in cache[domain].items():
+        if not IP[protocol] or not addrs:
+            continue
+        
+        # Try to do the request for each ips
+        for addr, ports in addrs.items():
+            if ports[port] == 'notworking':
+                continue
+            
+            if protocol == 'v6':
+                addr = '[' + addr + ']'
+            try:
 
-            # Try to do the request for each ips
-            for addr in addrs[protocol]:
-                if protocol == 'v6':
-                    addr = '[' + addr + ']'
-                try:
+                session = requests.Session()
+                adapter = host_header_ssl.HostHeaderSSLAdapter()
+                context = MySSLContext(domain)
+                adapter.init_poolmanager(10, 10, ssl_context=context)
+                session.mount('https://', adapter)
+                r = session.get("https://" + addr + path, 
+                                    headers={'Host': domain}, 
+                                    timeout=HTTP_TIMEOUT)
+            except requests.exceptions.SSLError as e:
+                to_report['CERT_INVALID'][protocol][addr] = {'debug': str(e)}
+            except (requests.exceptions.ConnectionError,
+                    requests.exceptions.ConnectTimeout) as e:
+                to_report['PORT_CLOSED_OR_SERVICE_DOWN'][protocol][addr] = {'debug': str(e)}
+            except (requests.exceptions.Timeout,
+                    requests.exceptions.ReadTimeout) as e:
+                to_report['TIMEOUT'][protocol][addr] = {'debug': str(e)}
+            except requests.exceptions.TooManyRedirects as e:
+                to_report['TOO_MANY_REDIRECTS'][protocol][addr] = {'debug': str(e)}
+            except Exception as e:
+                to_report['UNKNOWN_ERROR'][protocol][addr] = {'debug': str(e)}
+            else:
+                if r.status_code != 200:
+                    to_report['HTTP_%d' % r.status_code][protocol][addr] = {}
+                elif r.history[0].status_code == 302 and 'yunohost/sso' in r.url:
+                    to_report['SSO_CAPTURE'][protocol][addr] = {}
+            finally:
+                session.close()
 
-                    session = requests.Session()
-                    adapter = host_header_ssl.HostHeaderSSLAdapter()
-                    context = MySSLContext(domain)
-                    adapter.init_poolmanager(10, 10, ssl_context=context)
-                    session.mount('https://', adapter)
-                    r = session.get("https://" + addr + path, 
-                                     headers={'Host': domain}, 
-                                     timeout=HTTP_TIMEOUT)
-                except requests.exceptions.SSLError as e:
-                    errors.append(('CERTIFICATE_VERIFY_FAILED', {'msg': str(e)}))
-                except (requests.exceptions.ConnectionError,
-                        requests.exceptions.ConnectTimeout) as e:
-                    errors.append(('PORT_CLOSED_OR_SERVICE_DOWN', {'ip': addr, 'msg': str(e)}))
-                except (requests.exceptions.Timeout,
-                        requests.exceptions.ReadTimeout) as e:
-                    errors.append(('TIMEOUT', {'ip': addr, 'msg': str(e)}))
-                except requests.exceptions.TooManyRedirects as e:
-                    errors.append(('TOO_MANY_REDIRECTS', {'ip': addr, 'msg': str(e)}))
-                except Exception as e:
-                    errors.append(('UNKNOWN_ERROR', {'ip': addr, 'msg': str(e)}))
-                else:
-                    if r.status_code != 200:
-                        errors.append(('HTTP_%d' % r.status_code, {'ip': addr}))
-                    elif r.history[0].status_code == 302 and 'yunohost/sso' in r.url:
-                        errors.append(('SSO_CAPTURE', {'ip': addr}))
-                finally:
-                    session.close()
-        elif protocol == 'v6' and addrs[protocol]:
-            logging.debug('No IPv6 connexion, can\'t check HTTP on IPv6')
-
+    errors += _aggregate_report_by_target(to_report, domain, {'url': url})
     return errors
-#HTTP>LABEL
 
-def check_domain_renewal(hostname, port=443):
-    context = ssl.create_default_context()
+@need_connexion
+def check_domain_renewal(domain, critical_limit=2, error_limit=7, warning_limit=30):
+    expire_date = _get_domain_expiration(domain)
     
-    with socket.create_connection((hostname, port)) as sock:
-        with context.wrap_socket(sock, server_hostname=hostname) as ssock:
-            data = ssock.getpeercert()
-            notAfter = datetime.strptime(data['notAfter'], '%b %d %H:%M:%S %Y %Z')
-            expire_in = notAfter - datetime.now()
-            if expire_in < timedelta(14):
-                return [('CERT_RENEWAL_FAILED', {'remaining_days': expire_in.days})]
+    if not expire_date:
+        return [('DOMAIN_EXPIRATION_NOT_FOUND', {'domain': domain})]
+
+    expire_in = expire_date - datetime.now()
+    if expire_in <= timedelta(critical_limit):
+        return [('DOMAIN_EXPIRE', {'domain': domain}, {'remaining_days': expire_in.days})]
+    elif expire_in <= timedelta(error_limit):
+        return [('DOMAIN_NEARLY_EXPIRE', {'domain': domain}, {'remaining_days': expire_in.days})]
+    elif expire_in <= timedelta(warning_limit):
+        return [('DOMAIN_WILL_EXPIRE', {'domain': domain}, {'remaining_days': expire_in.days})]
     return []
-#CERT>LABEL|DOMAIN
 
-
+@need_connexion
 def check_dns_resolver(resolver=None, hostname='wikipedia.org', qname='A', expected_results=None):
+    # TODO reduce errors
     if resolver is None:
         my_resolver = dns.resolver
     elif (not IP.v4 and '.' in resolver) or \
@@ -663,128 +937,153 @@ def check_dns_resolver(resolver=None, hostname='wikipedia.org', qname='A', expec
     else:
         my_resolver = dns.resolver.Resolver()
         my_resolver.nameservers = [resolver]
+        my_resolver.timeout = 10
     
     try:
-        answers = my_resolver.query(hostname)
-    except dns.exception.NoNameservers as e:
-        return [('BROKEN_NAMESERVER', {'msg': str(e)})]
+        answers = my_resolver.query(hostname, qname)
     except dns.exception.Timeout as e:
-        return [('TIMEOUT', {'msg': str(e)})]
-    except dns.exception.NXDOMAIN as e:
-        return [('DOMAIN_UNCONFIGURED', {'msg': str(e)})]
-    except dns.exception.NoAnswer as e:
-        return [('NO_ANSWER', {'msg': str(e)})]
+        return [('TIMEOUT', {'resolver': resolver}, {'debug': str(e)})]
+    except dns.resolver.NXDOMAIN as e:
+        return [('DOMAIN_UNCONFIGURED', {'domain': hostname}, {'debug': str(e)})]
+    except dns.resolver.NoAnswer as e:
+        return [('NO_ANSWER', {'domain': hostname}, {'debug': str(e)})]
     if expected_results is not None:
         answers = [answer.to_text() for answer in answers]
         if set(answers) ^ set(expected_results):
-            return [('UNEXPECTED_ANSWER', {'get': set(answers), 'expected': set(expected_results)})]
+            return [('UNEXPECTED_ANSWER', {'domain': hostname}, 
+                     {'get': set(answers), 'expected': set(expected_results)})]
     return []
-#DNS RESOLVER
 
+@need_connexion
+def check_blacklisted(addr, hostname):
+    errors = []
+    for bl, description in DEFAULT_BLACKLIST:
+        try:
+            rev = dns.reversename.from_address(addr)
+            query = str(rev.split(3)[0]) + '.' + bl
+            # TODO add timeout lifetime
+            dns.resolver.query(query, "A")
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoNameservers, dns.resolver.NoAnswer, 
+                dns.exception.Timeout):
+            continue
+        reason_or_link = None
+        try:
+            reason_or_link = dns.resolver.query(query, "TXT")[0]
+        except Exception:
+            pass
+        errors.append(('BLACKLISTED', {'domain': hostname, 'ip': addr}, {'rbl': bl, 'rbl_description': description, 'txt': reason_or_link}))
+    return errors
+
+@need_connexion
 def check_smtp(hostname, ports=[25, 587], blacklist=True):
     # TODO check spf
     # TODO check dkim
-    # Return no errors in case the monitoring server has no connexion
-    if not IP.v4 and not IP.v6:
-        logging.debug('No connexion, can\'t check HTTP')
-        return []
-    
     errors = []
-
+    
     # Do check for all ips of all MX
     mx_domains = {mx.preference: mx.exchange.to_text(True) 
                   for mx in dns.resolver.query(hostname, 'MX')}
     mx_domains = [mx_domains[key] for key in sorted(mx_domains)]
     
     if not mx_domains:
-        errors.append('NO_MX_RECORD')
+        errors.append(('NO_MX_RECORD', {'domain': hostname}))
         # If no MX consider A and AAAA records
         mx_domains = [hostname]
 
     for mx_domain in mx_domains:
-        try:
-            addrs = socket.getaddrinfo(mx_domain, None)
-        except socket.gaierror:
-            errors.append(('DOMAIN_UNCONFIGURED', {'mx': mx_domain}))
+        errors += check_ip_address(mx_domain)
 
-        mx_ips = {addr[4][0] for addr in addrs if addr[0] == socket.AF_INET}
-        mx_ips |= {addr[4][0] for addr in addrs if addr[0] == socket.AF_INET6}
+        for protocol, addrs in cache[mx_domain].items():
+            if not IP[protocol] or not addrs:
+                continue
         
-        for mx_ip in mx_ips:
-            # Check Reverse DNS
-            try:
-                name, _, _ = socket.gethostbyaddr(mx_ip)
-            except socket.herror as e:
-                errors.append(('REVERSE_MISSING', {'ip': mx_ip, 'mx': mx_domain}))
-            else:
-                if name != mx_domain:
-                    errors.append(('REVERSE_MISMATCH', {'ip': mx_ip, 'get': name, 'expected': mx_domain}))
-            
-            # Check rbl
-            if blacklist:
-                for bl, description in DEFAULT_BLACKLIST:
-                    try:
-                        rev = dns.reversename.from_address(mx_ip)
-                        query = str(rev.split(3)[0]) + '.' + bl
-                        dns.resolver.query(query, "A")
-                    except (dns.resolver.NXDOMAIN, dns.resolver.NoNameservers, dns.resolver.NoAnswer):
-                        continue
-                    reason_or_link = None
-                    try:
-                        reason_or_link = dns.resolver.query(query, "TXT")[0]
-                    except Exception:
-                        pass
-                    errors.append(('BLACKLISTED', {'ip': mx_ip, 'rbl': bl, 'rbl_description': description, 'txt': reason_or_link}))
+            # Try to do the request for each ips
+            for addr, _ports in addrs.items():
 
-            if not IP.v4 and '.' in mx_ip:
-                logging.debug('No IPv4 connexion, can\'t check SMTP %s' % mx_ip)
-                continue
-            
-            if not IP.v6 and ':' in mx_ip:
-                logging.debug('No IPv6 connexion, can\'t check SMTP %s' % mx_ip)
-                continue
-
-            # Check SMTP works
-            for port in ports:
+                # Check Reverse DNS
                 try:
-                    server = smtplib.SMTP(mx_ip, port) 
-                    server.ehlo()
-                    server.starttls()
+                    name, _, _ = socket.gethostbyaddr(addr)
+                except socket.herror as e:
+                    errors.append(('REVERSE_MISSING', {'domain': hostname, 'ip': addr}))
+                else:
+                    if name != mx_domain:
+                        errors.append(('REVERSE_MISMATCH', {'domain': hostname, 'ip': addr}, {'get': name, 'expected': mx_domain}))
+                
+                # Check rbl
+                if blacklist:
+                    errors += check_blacklisted(addr, hostname)
 
-                    # Check certificate
-                    pem = ssl.DER_cert_to_PEM_cert(server.sock.getpeercert(binary_form=True))
-                    cert = x509.load_pem_x509_certificate(pem.encode(), default_backend())
-                    notAfter = cert.not_valid_after
-                    expire_in = notAfter - datetime.now()
-                    if expire_in < timedelta(14):
-                        errors.append(('CERT_RENEWED_FAILED', {'ip': mx_ip, 'mx': mx_domain}))
-                except OSError:
-                    return [('PORT_CLOSED_OR_SERVICE_DOWN', {'ip': mx_ip, 'mx': mx_domain})]
-                finally:
-                    if server:
-                        server.quit()
+                if not IP.v4 and '.' in addr:
+                    logging.debug('No IPv4 connexion, can\'t check SMTP %s' % addr)
+                    continue
+                
+                if not IP.v6 and ':' in addr:
+                    logging.debug('No IPv6 connexion, can\'t check SMTP %s' % addr)
+                    continue
 
+    # Check SMTP works
+    for port in ports:
+        for mx_domain in mx_domains:
+            to_report = {msg: {'v4':{}, 'v6': {}} for msg in [
+                'CERT_RENEWAL_FAILED',
+                'PORT_CLOSED_OR_SERVICE_DOWN'
+            ]}
+
+            for protocol, addrs in cache[mx_domain].items():
+                if not IP[protocol] or not addrs:
+                    continue
+            
+                # Try to do the request for each ips
+                for addr, _ports in addrs.items():
+                    if port in _ports and _ports[port] == 'notworking':
+                        continue
+
+                    server = None
+                    try:
+                        server = smtplib.SMTP(addr, port, timeout=10) 
+                        server.ehlo()
+                        server.starttls()
+
+                        # Check certificate
+                        pem = ssl.DER_cert_to_PEM_cert(server.sock.getpeercert(binary_form=True))
+                        cert = x509.load_pem_x509_certificate(pem.encode(), default_backend())
+                        notAfter = cert.not_valid_after
+                        expire_in = notAfter - datetime.now()
+                        if expire_in < timedelta(14):
+                            to_report['CERT_RENEWAL_FAILED'][protocol][addr] = {'remaining_days': expire_in.days}
+                    except OSError:
+                        to_report['PORT_CLOSED_OR_SERVICE_DOWN'][protocol][addr] = {}
+                        _ports[port] = 'notworking'
+                    finally:
+                        if server:
+                            server.quit()
+
+            errors += _aggregate_report_by_target(to_report, mx_domain,
+                                              {'domain': hostname, 'port': port})
     return errors
 
 
+@need_connexion
 def check_imap():
     return []
 
 
+@need_connexion
 def check_pop():
     return []
 
 
+@need_connexion
 def check_xmpp():
     return []
 
 
-# Internal checks
+@run_on_monitored_server
 def check_dns_resolution():
     return check_dns_resolver(None)
-# DNS RESOLUTION
 
 
+@run_on_monitored_server
 def check_service_up(service):
     d = dbus.SystemBus()
 
@@ -801,16 +1100,16 @@ def check_service_up(service):
 
     if properties.get("LoadState", "not-found") == "not-found":
         # Service doesn't really exist
-        return [('NOT_FOUND')]
+        return [('NOT_FOUND', {'service': service})]
     elif properties['SubState'] == 'running':
         return []
     elif properties['SubState'] == 'exited':
-        return [('DOWN')]
+        return [('DOWN', {'service': service})]
     else:
-        return [('FAILED')]
-# SERVICE>LABEL|SERVICE
+        return [('FAILED', {'service': service})]
 
 
+@run_on_monitored_server
 def check_disk_health(device):
     # TODO short/long test and scsi error
     errors = []
@@ -819,8 +1118,7 @@ def check_disk_health(device):
     out, err = p.communicate()
     out = out.decode("utf-8").strip()
     if "SMART support is: Available" not in out:
-        logging.debug("/dev/%s doesn't support SMART" % device)
-        return []
+        return [('SMART_NOT_SUPPORTED', {'device': device})]
 
     # Activate SMART 
     p = Popen(['smartctl', '--smart=on', "--offlineauto=on", "--saveauto=on", "/dev/%s" % device], stdout=PIPE, stderr=PIPE)
@@ -837,28 +1135,35 @@ def check_disk_health(device):
     out, err = p.communicate()
     out = out.decode("utf-8").strip()
     if "SMART overall-health self-assessment test result: PASSED" not in out:
-        errors.append(('IMMINENT_DISK_FAILURE', {'device': device}))
+        errors.append(('DISK_FAILURE', {'device': device}))
 
     return errors
-#DISK>DISK_NAME
 
 
-def check_free_space(warning_limit=1500, error_limit=500, paths=None):
+@run_on_monitored_server
+def check_free_space(warning=1500, error=600, critical=200, paths=None):
     if not paths:
         paths = ['/', '/home', '/var', '/etc', '/var/log', '/boot', '/usr',
-                 '/bin', '/home/yunohost.backup/archives']
+                 '/bin', '/home/yunohost.backup/archives', '/opt']
 
     errors = []
     for path in paths:
-        total, used, free = shutil.disk_usage("/")
-        if free < error_limit * 1024 * 1024:
-            errors.append(('CRITICAL_FREE_SPACE', {'path': path, 'total': total, 'free': free}))
-        elif free < warning_limit * 1024 * 1024:
-            errors.append(('WARN_FREE_SPACE', {'path': path, 'total': total, 'free': free}))
+        if not os.path.ismount(path):
+            continue
+        total, used, free = shutil.disk_usage(path)
+        disk_usage = {'path': path, 'total': total, 'free': free}
+        if free == 0:
+            errors.append(('NO_FREE_SPACE', disk_usage))
+        if free < critical * 1024 * 1024:
+            errors.append(('C_FREE_SPACE', disk_usage))
+        elif free < error * 1024 * 1024:
+            errors.append(('E_FREE_SPACE', disk_usage))
+        elif free < warning * 1024 * 1024:
+            errors.append(('W_FREE_SPACE', disk_usage))
     return errors
-#DISK>FREE_SPACE
 
 
+@run_on_monitored_server
 def check_backuped(app, backup_app):
     # TODO protect passphrase
     if 'borg' in backup_app:
@@ -886,8 +1191,8 @@ def check_backuped(app, backup_app):
         theorical_date = datetime.strptime(out[1], '%a %Y-%m-%d %H:%M:%S %Z')
         
         if last_backup < theorical_date:
-            return [('MISSING_BACKUP', {'last_backup': last_backup,
-                                        'theorical_date': theorical_date})]
+            return [('MISSING_BACKUP', {'app': app, 'backup_app': backup_app}, 
+                     {'last_backup': last_backup, 'theorical_date': theorical_date})]
         delays = {
             'hourly': 1,
             'daily': 1,
@@ -897,9 +1202,9 @@ def check_backuped(app, backup_app):
         }
         param['on_calendar'] = param['on_calendar'].split(' ')[0]
         if param['on_calendar'] in delays.keys() and \
-           theorical_date <  datetime.now() - timedelta(delays[param['on_calendar']]):
-            return [('BACKUP_NOT_TRIGGERED', {'last_backup': last_backup,
-                                              'theorical_date': theorical_date})]
+            theorical_date <  datetime.now() - timedelta(delays[param['on_calendar']]):
+            return [('BACKUP_NOT_TRIGGERED', {'app': app, 'backup_app': backup_app}, 
+                     {'last_backup':last_backup, 'theorical_date':theorical_date})]
 
         cmd = [
             "BORG_RSH='ssh -i /root/.ssh/id_%s_ed25519 '" % backup_app,
@@ -917,8 +1222,8 @@ def check_backuped(app, backup_app):
         pass
 
     return []
-#BACKUP>LABEL
 
+@run_on_monitored_server
 def check_ynh_upgrade():
     errors = []
     # Check device smart capabilities
@@ -932,71 +1237,132 @@ def check_ynh_upgrade():
         return []
 
     if len(out['apps']) > 0:
-        errors.append(('APP_NEED_UPGRADE', {'number': len(out['apps']), 
-                                            'apps': [x['id'] for x in out['apps']]}))
+        for app in out['apps'].values():
+            errors.append(('APP_NEED_UPGRADE', {'app': app['id']}))
     if len(out['system']) > 0:
-        errors.append(('PKG_NEED_UPGRADE', {'number': len(out['system']), 
-                                            'packages': [x['id'] for x in out['system']]}))
+        errors.append(('PKG_NEED_UPGRADE', {}, {'number': len(out['system']), 
+                                            'packages': [x['name'] for x in out['system'].values()]}))
     return errors
     
+
+def _get_domain_expiration(domain):
+    domain = '.'.join(domain.split('.')[-2:])
+    p1 = Popen(['whois', domain], stdout=PIPE)
+    p2 = Popen(['grep', 'Expir'], stdin=p1.stdout, stdout=PIPE)
+    out, err = p2.communicate()
+    out = out.decode("utf-8").split('\n')
+    p1.terminate()
+    p2.terminate()
+    if len(out) > 1:
+        match = re.search(r'\d{4}-\d{2}-\d{2}', out[0])
+        return datetime.strptime(match.group(), '%Y-%m-%d')
+    else:
+        return False
+
+def _get_cert_info(hostname, ip=None, port=443):
+    if ip is None:
+        ip = hostname
+    context = ssl.create_default_context()
+    #context.check_hostname = False
+    conn = context.wrap_socket(
+        socket.socket(socket.AF_INET),
+        server_hostname=hostname,
+    )
+    # 3 second timeout because Lambda has runtime limitations
+    conn.settimeout(3.0)
+    conn.connect((ip, port))
+    peercert = conn.getpeercert()
+    conn.close()
+    return peercert
+
+def _aggregate_report_by_target(to_report, domain, base_target):
+    errors = []
+    # Agregate target
+    for message, reports in to_report.items():
+        if len(reports['v4']) == len(cache[domain]['v4']) and \
+           len(reports['v6']) == len(cache[domain]['v6']):
+            extra = reports['v4'][list(reports['v4'].keys())[0]] if reports['v4'] else reports['v6'][list(reports['v6'].keys())[0]]
+            errors.append((message, base_target, extra))
+            reports = {'v4':{}, 'v6': {}}
+        elif len(reports['v4']) == len(cache[domain]['v4']) and reports['v4']:
+            extra = reports['v4'][list(reports['v4'].keys())[0]]
+            errors.append((message, {**base_target, 'protocol': 'v4'}, extra))
+            reports['v4'] = {}
+        elif len(reports['v6']) == len(cache[domain]['v6']) and reports['v6']:
+            extra = reports['v6'][list(reports['v6'].keys())[0]]
+            errors.append((message, {**base_target, 'protocol': 'v6'}, extra))
+            reports['v6'] = {}
+        
+        for ip, report in reports['v4'].items():
+            errors.append((message, {**base_target, 'ip': ip}, report))
+        for ip, report in reports['v6'].items():
+            errors.append((message, {**base_target, 'ip': ip}, report))
+    return errors
+
+def _reset_cache():
+    global cache
+    cache = {}
 
 # =============================================================================
 # ACTIONS PLUGINS
 # =============================================================================
-# TODO sms_message/cachet_message create custom message
 
-def trigger_actions(failures, ynh_maps, mails, sms_apis, cachet_apis):
-
-    alerts = {}
-    for server, failure in failures.items():
-        alerts[server] = {}
-        for category, targets in failures.items():
-            alerts[server][category] = {}
-            for target, reports in targets.items():
-                alerts[server][category][target] = [r for r in reports.items() if r[1]["count"] % ALERT_FREQUENCY == 0]
-    
-    if IP.v4 or IP.v6:
-        mail_alert(alerts, ynh_maps, mails)
-        #sms_alert(alerts, ynh_maps, sms_apis)
-        #cachet_alert(alerts, ynh_maps, cachet_apis)
-
-    if 'localhost' in alerts:
-        service_up(alerts['localhost']['service_up'])
 
 def service_up(alerts):
     # TODO service up
     for service, message in alerts:
         pass
 
-def mail_alert(alerts, ynh_map, mails):
+@need_connexion
+def mail_alert(alerts, mails):
     for server, failures in alerts.items():
-        for category, reports in failures.items():
-            for target, infos in reports:
+        for message, reports in failures.items():
+            for report in reports:
+                info = {**report['target'], **report['extra']}
+                context = {
+                    'server': server, 
+                    'level': report['level'], 
+                    'message': message, 
+                    'target': ', '.join([str(x) for x in report['target'].values()]),
+                    'extra': yaml.dump(report['extra']),
+                }
+                context['user_info'] = MONITORING_ERRORS[message]['user'].format(**info)
+                context['admin_info'] = MONITORING_ERRORS[message]['admin'].format(**info)
+                
 
-                subject = "[monitoring][%s][%s] %s is failing" % (server, category, target)
-                body = target + " :\n" + "\n".join(infos["messages"])
+                subject = MAIL_SUBJECT.format(**context)
+                body = MAIL_BODY.format(**context)
 
                 open("/tmp/monitoring-body", "w").write(body)
                 os.system("mail -s '%s' %s < /tmp/monitoring-body" % (subject, ' '.join(mails)))
 
-"""
-def sms_alert(server, alerts, ynh_maps, sms_apis):
-    for server, failures in alerts.items():
-        body = ["%s:" % (server)]
-        for category, reports in failures.items():
-            for target, infos in reports:
-                body.append(sms_message(category, target, ynh_maps[server], infos))
-                body += target + "%s>\n" + "\n".join(infos["messages"])
 
+@need_connexion
+def sms_alert(alerts, sms_apis):
+    body = []
+    for server, failures in alerts.items():
+        body += ["[%s]" % (server)]
+        for message, reports in failures.items():
+            if MONITORING_ERRORS[message]['level'] == 'critical':
+                body.append(message)
+                for report in reports:
+                    body.append('- ' + ', '.join([str(x) for x in report['target'].values()]))
+        for message, reports in failures.items():
+            if MONITORING_ERRORS[message]['level'] == 'error':
+                body.append(message)
+                for report in reports:
+                    body.append('- ' + ', '.join([str(x) for x in report['target'].values()]))
     if len(body) > 1:
         body = "\n".join(body)
+        body = urllib.parse.quote(body, safe='')
         for sms_api in sms_apis:
             try:
                 requests.get(sms_api % (body), timeout=15)
             except Exception as e:
-                logging.debug(sms_api, str(e))
+                print(str(e))
+                pass
 
-
+"""
 def cachet_alert(alerts, ynh_maps, cachet_apis):
     for cachet_api in cachet_apis:
         cachet = Cachet(cachet_api, ynh_maps)
