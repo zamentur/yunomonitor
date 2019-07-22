@@ -49,7 +49,7 @@ class TestCheck(unittest.TestCase):
 class TestServerMonitor(TestCheck):
     def test_ok(self):
         monitored_servers = ['localhost', 'ynh.local']
-        threads = [ServerMonitor(server, ['ynh.local']) for server in monitored_servers]
+        threads = [ServerMonitor(server) for server in monitored_servers]
         for thread in threads:
             thread.start()
     
@@ -138,7 +138,7 @@ class TestSMSAlert(TestCheck):
                 }]
             }
         }
-        sms = ["https://smsapi.free-mobile.fr/sendmsg?user=10638778&pass=cWzyR3moNjsD0K&msg=%s"]
+        sms = [""]
         sms_alert(alerts, sms)
 
 
