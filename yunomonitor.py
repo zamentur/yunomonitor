@@ -200,10 +200,10 @@ ALERT_FREQUENCY = 3
 # Update monitoring configuration each hours
 CACHE_DURATION_IN_MINUTES = 60
 
-WELL_KNOWN_URI = 'https://%s/.well-known/yunomonitor/'
+WELL_KNOWN_URI = 'https://%s/.well-known/acme-challenge/'
 REMOTE_MONITORING_CONFIG_FILE = os.path.join(WELL_KNOWN_URI, '%s.to_monitor')
 REMOTE_FAILURES_FILE = os.path.join(WELL_KNOWN_URI, '%s.failures')
-WELL_KNOWN_DIR = '/var/www/.well-known/yunomonitor/'
+WELL_KNOWN_DIR = '/tmp/acme-challenge-public/'
 PUBLISHED_FAILURES_FILE = os.path.join(WELL_KNOWN_DIR, "%s.failures")
 PUBLISHED_MONITORING_CONFIG_FILE = os.path.join(WELL_KNOWN_DIR, "%s.to_monitor")
 PUBLIC_KEY_URI = os.path.join(WELL_KNOWN_URI, "ssh_host_rsa_key.pub")
