@@ -455,7 +455,12 @@ class ServerMonitor(Thread):
             for args in checks:
                 try:
                     check_name = "check_%s" % (category)
-                    reports = globals()[check_name](*args)
+                    if isinstance(args, str):
+                        args = []
+                    if isinstance(args, dict):
+                        reports = globals()[check_name](**args)
+                    else:
+                        reports = globals()[check_name](*args)
                 except Exception as e:
                     reports = [('UNKNOWN_ERROR', {'check': category}, {'debug': str(e)})]
                 for report in reports:
