@@ -336,25 +336,27 @@ def main(argv):
         alerts[thread.server]=thread.failures
 
     # Filter by reccurence
+    filtered = {}
     for server, failures in alerts.items():
+        filtered[server] = {}
         for message, reports in failures.items():
             first = MONITORING_ERRORS[message]['first']
             freq = MONITORING_ERRORS[message]['frequency']
-            alerts[server][message] = []
+            filtered[server][message] = []
             
             for report in reports:
                 if (report['count'] - first) % freq == 0:
                     report['level'] = MONITORING_ERRORS[message]['level']
-                    alerts[server][message].append(report)
-            if alerts[server][message]:
+                    filtered[server][message].append(report)
+            if filtered[server][message]:
                 del alerts[server][message]
     
     # Trigger some actions
     if mails:
-        mail_alert(alerts, mails)
+        mail_alert(filtered, mails)
     
     if sms_apis:
-        sms_alert(alerts, sms_apis)
+        sms_alert(filtered, sms_apis)
     #cachet_alert(alerts, ynh_maps, cachet_apis)
 
     #if 'localhost' in alerts:
