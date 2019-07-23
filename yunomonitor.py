@@ -347,8 +347,11 @@ def main(argv):
                     alerts[server][message].append(report)
     
     # Trigger some actions
-    mail_alert(alerts, mails)
-    sms_alert(alerts, sms_apis)
+    if mails:
+        mail_alert(alerts, mails)
+    
+    if sms_apis:
+        sms_alert(alerts, sms_apis)
     #cachet_alert(alerts, ynh_maps, cachet_apis)
 
     #if 'localhost' in alerts:
