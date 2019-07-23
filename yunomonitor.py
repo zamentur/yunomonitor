@@ -457,7 +457,7 @@ class ServerMonitor(Thread):
                     check_name = "check_%s" % (category)
                     reports = globals()[check_name](*args)
                 except Exception as e:
-                    reports = [('UNKNOWN_ERROR', {'check': category})]
+                    reports = [('UNKNOWN_ERROR', {'check': category}, {'debug': str(e)})]
                 for report in reports:
                     if report[0] not in self.failures:
                         self.failures[report[0]] = []
