@@ -552,7 +552,7 @@ def get_id_host(server=None):
 
 def encrypt(message, mserver):
     key = get_public_key(mserver)
-    return message
+    return message.encode()
     #key = RSA.importKey(key)
     #cipher = Cipher_PKCS1_v1_5.new(key)
     #return cipher.encrypt(message.encode())
