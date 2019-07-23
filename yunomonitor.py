@@ -676,12 +676,15 @@ def generate_monitoring_config():
                     app['backup'] = [x[19:] for x in apps_dir]
                 else:
                     app['backup'] = app_settings['apps'].split(',')
-                backuped.update([(x, app['id']) for x in app['backup']])
             apps.append(app)
         
         for app in apps:
-            https_200.update(app['uris'])
-            service_up.update(app['services'])
+            if 'uris' in app:
+                https_200.update(app['uris'])
+            if 'services' in app:
+                service_up.update(app['services'])
+            if 'backup' in app:
+                backuped.update([(x, app['id']) for x in app['backup']])
     
     # List all non removable disks
     devices = _get_devices()
