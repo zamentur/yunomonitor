@@ -596,7 +596,7 @@ def generate_monitoring_config():
                 "id": "mail",
                 "name": "Mail",
                 "label": "Mail",
-                "services": ["postfix", "rspamd", "dovecot", "postsrsd",
+                "services": ["rspamd", "dovecot", "postsrsd",
                              "dnsmasq", "slapd"]
             },
             {
@@ -632,7 +632,7 @@ def generate_monitoring_config():
                 "name": "Base",
                 "label": "Système de base",
                 "services": ["avahi-daemon", "cron", "dbus", "glances",
-                             "haveged", "ntp", "rng-tools", "rsyslog", "syslog", 
+                             "haveged", "ntp", "rsyslog", "syslog", 
                              "systemd-journald", "systemd-udevd"]
             }
 
