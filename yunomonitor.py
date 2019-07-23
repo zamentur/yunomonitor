@@ -692,9 +692,9 @@ def generate_monitoring_config():
         "dns_resolver": list(set(dns_resolver)),
         "disk_health": list(set(devices)),
         "free_space": [{}],
-        "https_200": https_200,
-        "service_up": service_up,
-        "backuped": backuped,
+        "https_200": list(https_200),
+        "service_up": list(service_up),
+        "backuped": list(backuped),
         "__components__": apps,
     }
 
