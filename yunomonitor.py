@@ -482,9 +482,10 @@ class ServerMonitor(Thread):
                 continue
 
             for report in reports:
-                r = next((x for x in self.failures[message]
-                          if x['target'] == report['target']))
-                r['count'] += report['count']
+                r = [x for x in self.failures[message]
+                          if x['target'] == report['target']]
+                if r:
+                    r[0]['count'] += report['count']
         
     def _add_remote_failures(self):
         if self.server == 'localhost':
