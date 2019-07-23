@@ -602,7 +602,7 @@ def generate_monitoring_config():
                 "name": "Mail",
                 "label": "Mail",
                 "services": ["rspamd", "dovecot", "postsrsd",
-                             "dnsmasq", "slapd"]
+                             "dnsmasq", "slapd"] # postfix
             },
             {
                 "id": "xmpp",
@@ -630,7 +630,7 @@ def generate_monitoring_config():
                 "id": "firewall",
                 "name": "Firewall",
                 "label": "Parefeu",
-                "services": ["yunohost-firewall", "fail2ban"]
+                "services": ["fail2ban"] #yunohost-firewall
             },
             {
                 "id": "misc",
