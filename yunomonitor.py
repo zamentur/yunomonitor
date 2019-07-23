@@ -552,15 +552,17 @@ def get_id_host(server=None):
 
 def encrypt(message, mserver):
     key = get_public_key(mserver)
-    key = RSA.importKey(key)
-    cipher = Cipher_PKCS1_v1_5.new(key)
-    return cipher.encrypt(message.encode())
+    return message
+    #key = RSA.importKey(key)
+    #cipher = Cipher_PKCS1_v1_5.new(key)
+    #return cipher.encrypt(message.encode())
 
 def decrypt(cipher_message):
-    with open('/etc/ssh/ssh_host_rsa_key') as f:
-        key = RSA.importKey(f.read())
-    cipher = Cipher_PKCS1_v1_5.new(key)
-    return cipher.decrypt(cipher_message, None).decode()
+    return cipher_message
+    #with open('/etc/ssh/ssh_host_rsa_key') as f:
+    #    key = RSA.importKey(f.read())
+    #cipher = Cipher_PKCS1_v1_5.new(key)
+    #return cipher.decrypt(cipher_message, None).decode()
 
 
 def generate_monitoring_config():
