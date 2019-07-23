@@ -349,7 +349,7 @@ def main(argv):
                     report['level'] = MONITORING_ERRORS[message]['level']
                     filtered[server][message].append(report)
             if filtered[server][message]:
-                del alerts[server][message]
+                del filtered[server][message]
     
     # Trigger some actions
     if mails:
@@ -470,7 +470,7 @@ class ServerMonitor(Thread):
                     reports = [('UNKNOWN_ERROR', {'check': category}, {'debug': str(e)})]
                 for report in reports:
                     if report[0] not in self.failures:
-                        self.failures[report[0]] = []
+                        self.failures[report[0]] = self.failures.get(report[0], [])
                         self.failures[report[0]].append({
                             'target': report[1],
                             'count': 1,
