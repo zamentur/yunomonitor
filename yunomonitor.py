@@ -456,7 +456,7 @@ class ServerMonitor(Thread):
                 try:
                     check_name = "check_%s" % (category)
                     if isinstance(args, str):
-                        args = []
+                        args = [args]
                     if isinstance(args, dict):
                         reports = globals()[check_name](**args)
                     else:
