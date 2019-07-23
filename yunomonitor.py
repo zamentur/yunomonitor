@@ -518,11 +518,30 @@ class ServerMonitor(Thread):
             with open(PUBLISHED_FAILURES_FILE % get_id_host(mserver), "wb") as f:
                 f.write(encrypt(json.dumps(self.failures), mserver))
 
+def get_public_key(server):
+    cache_key = '/etc/yunomonitor/%s.pub' % server
+    if os.path.exists(cache_key):
+        with open('/etc/yunomonitor/%s.pub' % server) as f:
+            key = f.read()
+    else:
+        try:
+            r = requests.get(PUBLIC_KEY_URI % server, timeout=15)
+        except Exception as e:
+            return None
+        if r is None or r.status_code != 200:
+            return None
+        
+        key = r.text
+        with open('/etc/yunomonitor/%s.pub' % server, 'w') as f:
+            f.write(r.text)
+    return key
+
 
 def get_id_host(server=None):
     if not server:
         filename = '/etc/ssh/ssh_host_rsa_key.pub'
     else:
+        get_public_key(server)
         filename = '/etc/yunomonitor/%s.pub' % server
     block_size = 65536
     sha256 = hashlib.sha256()
@@ -532,22 +551,7 @@ def get_id_host(server=None):
     return sha256.hexdigest()
 
 def encrypt(message, mserver):
-    cache_key = '/etc/yunomonitor/%s.pub' % mserver
-    if os.path.exists(cache_key):
-        with open('/etc/yunomonitor/%s.pub' % mserver) as f:
-            key = f.read()
-    else:
-        try:
-            r = requests.get(PUBLIC_KEY_URI % mserver, timeout=15)
-        except Exception as e:
-            return None
-        if r is None or r.status_code != 200:
-            return None
-        
-        key = r.text
-        with open('/etc/yunomonitor/%s.pub' % mserver, 'w') as f:
-            f.write(r.text)
-
+    key = get_public_key(mserver)
     key = RSA.importKey(key)
     cipher = Cipher_PKCS1_v1_5.new(key)
     return cipher.encrypt(message.encode())
