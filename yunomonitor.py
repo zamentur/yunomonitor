@@ -642,15 +642,12 @@ def generate_monitoring_config():
             uris = []
             if 'unprotected_uris' in app_settings or 'skipped_uris' in app_settings:
                 if 'domain' in app_settings:
-                    uri = []
-                    uri.append(app_settings['domain'])
                     if 'path' in app_settings:
-                        uri.append(app_settings['path'])
+                        uris.append(app_settings['domain'] + app_settings['path'])
                     if 'unprotected_uris' in app_settings:
-                        uri.append(app_settings['unprotected_uris'])
+                        uris.append(app_settings['domain'] + app_settings['unprotected_uris'])
                     if 'skipped_uris' in app_settings:
-                        uri.append(app_settings['skipped_uris'])
-                    uris.append(os.path.join(*uri))
+                        uris.append(app_settings['domain'] + app_settings['skipped_uris'])
 
             with open(os.path.join(app_dir, 'manifest.json'), 'r') as manifest_file:
                 app_manifest = json.load(manifest_file)
@@ -680,9 +677,11 @@ def generate_monitoring_config():
                 else:
                     app['backup'] = app_settings['apps'].split(',')
                 backuped.update([(x, app['id']) for x in app['backup']])
-            https_200.update(uris)
-            service_up.update(services)
             apps.append(app)
+        
+        for app in apps:
+            https_200.update(app['uris'])
+            service_up.update(app['services'])
     
     # List all non removable disks
     devices = _get_devices()
