@@ -340,11 +340,14 @@ def main(argv):
         for message, reports in failures.items():
             first = MONITORING_ERRORS[message]['first']
             freq = MONITORING_ERRORS[message]['frequency']
+            alerts[server][message] = []
+            
             for report in reports:
-                alerts[server][message] = []
                 if (report['count'] - first) % freq == 0:
                     report['level'] = MONITORING_ERRORS[message]['level']
                     alerts[server][message].append(report)
+            if alerts[server][message]:
+                del alerts[server][message]
     
     # Trigger some actions
     if mails:
