@@ -409,7 +409,7 @@ class ServerMonitor(Thread):
                 # Encrypt and publish to let the monitoring server to download it
                 for mserver in self.monitoring_servers:
                     with open(PUBLISHED_MONITORING_CONFIG_FILE % get_id_host(mserver), 'wb') as publish_config_file:
-                        publish_config_file.write(encrypt(config, mserver))
+                        publish_config_file.write(encrypt(yaml.dump(config), mserver))
             
             # If the server to monitor is on remote, we try to download the 
             # configuration
