@@ -340,7 +340,7 @@ def main(argv):
     if config['monitored_servers'] == []:
         config['monitored_servers'] = ['localhost']
     
-    logging.debug("Mails: %s" % (mails))
+    logging.debug("Mails: %s" % (config['mails']))
 
     # If we are offline in IPv4 and IPv6 execute only local checks
     IP.v4 = not check_ping("wikipedia.org", ['v4'])
@@ -397,10 +397,10 @@ def main(argv):
     
     # Trigger some actions
     logging.debug('Trigger some actions')
-    if mails:
+    if config['mails']:
         mail_alert(filtered, config['mails'])
     
-    if sms_apis:
+    if config['sms_apis']:
         sms_alert(filtered, config['sms_apis'])
     #cachet_alert(alerts, ynh_maps, config['cachet_apis'])
 
