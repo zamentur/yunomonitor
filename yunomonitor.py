@@ -320,11 +320,9 @@ def main(argv):
             'monitoring_servers': [],
             'monitored_servers': monitored_servers,
         }
-    config['mails'] = set(config['mails'])
-    config['sms_apis'] = set(config['sms_apis'])
-    config['cachet_apis'] = set(config['cachet_apis'])
-    config['monitoring_servers'] = set(config['monitoring_servers'])
-    config['monitored_servers'] = set(config['monitored_servers'])
+
+    for param in ['mails', 'sms_apis', 'cachet_apis', 'monitoring_servers', 'monitored_servers']:
+        config[param] = set(config[param]) if param in config else set()
 
     for opt, arg in opts:
         if opt in ("-m", "--mail"):
