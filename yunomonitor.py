@@ -330,7 +330,11 @@ def main(argv):
         monitored_servers = ['localhost']
 
     # Create well-known dir
-    os.mkdir(WELL_KNOWN_DIR)
+    try:
+        os.mkdir(WELL_KNOWN_DIR)
+    except:
+        # The dir may already exist
+        pass
 
     # Load or download monitoring description of each server, convert
     # monitoring instructions, execute it
