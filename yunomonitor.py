@@ -336,10 +336,10 @@ def main(argv):
             config['monitoring_servers'].add(arg)
 
 
-    if config['monitored_servers'] == []:
+    if config['monitored_servers'] == set():
         config['monitored_servers'] = ['localhost']
     
-    logging.debug("Mails: %s" % (config['mails']))
+    logging.debug("Config: %s" % (config))
 
     # If we are offline in IPv4 and IPv6 execute only local checks
     IP.v4 = not check_ping("wikipedia.org", ['v4'])
@@ -349,7 +349,7 @@ def main(argv):
         if 'localhost' not in config['monitored_servers']:
             sys.exit(2)
         logging.debug('only local test will run')
-        config['monitored_servers'] = ['localhost']
+        config['monitored_servers'] = set(['localhost'])
 
     # Create well-known dir
     try:
@@ -592,9 +592,9 @@ def publish_ssh_public_key():
         copyfile('/etc/ssh/ssh_host_rsa_key.pub', WELL_KNOWN_DIR + '/ssh_host_rsa_key.pub')
 
 def get_public_key(server):
-    cache_key = '/etc/yunomonitor/%s.pub' % server
+    cache_key = os.path.join(CONF_DIR, '%s.pub' % server)
     if os.path.exists(cache_key):
-        with open('/etc/yunomonitor/%s.pub' % server) as f:
+        with open(cache_key) as f:
             key = f.read()
     else:
         try:
@@ -605,7 +605,7 @@ def get_public_key(server):
             return None
         
         key = r.text
-        with open('/etc/yunomonitor/%s.pub' % server, 'w') as f:
+        with open(cache_key % server, 'w') as f:
             f.write(r.text)
     return key
 
@@ -615,7 +615,7 @@ def get_id_host(server=None):
         filename = '/etc/ssh/ssh_host_rsa_key.pub'
     else:
         get_public_key(server)
-        filename = '/etc/yunomonitor/%s.pub' % server
+        filename = os.path.join(CONF_DIR, '%s.pub' % server)
     block_size = 65536
     sha256 = hashlib.sha256()
     with open(filename, 'rb') as f:
