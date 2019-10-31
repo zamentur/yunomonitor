@@ -200,10 +200,10 @@ ALERT_FREQUENCY = 3
 # Update monitoring configuration each hours
 CACHE_DURATION_IN_MINUTES = 60
 
-WELL_KNOWN_URI = 'https://%s/.well-known/acme-challenge/'
+WELL_KNOWN_URI = 'https://%s/.well-known/yunomonitor/'
 REMOTE_MONITORING_CONFIG_FILE = os.path.join(WELL_KNOWN_URI, '%s.to_monitor')
 REMOTE_FAILURES_FILE = os.path.join(WELL_KNOWN_URI, '%s.failures')
-WELL_KNOWN_DIR = '/tmp/acme-challenge-public/'
+WELL_KNOWN_DIR = 'well-known/'
 PUBLISHED_FAILURES_FILE = os.path.join(WELL_KNOWN_DIR, "%s.failures")
 PUBLISHED_MONITORING_CONFIG_FILE = os.path.join(WELL_KNOWN_DIR, "%s.to_monitor")
 PUBLIC_KEY_URI = os.path.join(WELL_KNOWN_URI, "ssh_host_rsa_key.pub")
@@ -214,7 +214,7 @@ ping:
         messages:
             - some.domain.tld no ipv4 ping
 """
-CONFIG_DIR = "/etc/yunomonitor/"
+CONFIG_DIR = "conf/"
 MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "%s.yml")
 CACHE_MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "%s.cache.yml")
 FAILURES_FILE = os.path.join(CONFIG_DIR, "%s.failures.yml")
@@ -256,7 +256,9 @@ DEFAULT_BLACKLIST = [
 ]
 # =============================================================================
 
-
+# Import user settings
+try:
+    from settings_local import *
 # =============================================================================
 # GLOBAL VARS
 # =============================================================================
@@ -289,33 +291,52 @@ def main(argv):
     start_time = time.time()    
     # Parse arguments
     try:
-        opts, monitored_servers = getopt.getopt(argv, "hm:s:c:e:", 
+        opts, monitored_servers = getopt.getopt(argv, "hm:s:C:e:c:", 
                                                 ["mail=", "sms=", "cachet=", 
-                                                 "encrypt-for="])
+                                                 "encrypt-for=", "config="])
     except getopt.GetoptError:
         display_help(2)
     
     logging.debug("Given options: %s" % (opts))
     logging.debug("Servers to monitor: %s" % (monitored_servers))
     
-    mails = set()
-    sms_apis = set()
-    cachet_apis = set()
-    monitoring_servers = set()
+    config_file = None
     for opt, arg in opts:
         if opt == '-h':
             display_help()
-        elif opt in ("-m", "--mail"):
-            mails.add(arg)
-        elif opt in ("-s", "--sms"):
-            sms_apis.add(arg)
-        elif opt in ("-c", "--cachet"):
-            cachet_apis.add(arg)
-        elif opt in ("-e", "--encrypt-for"):
-            monitoring_servers.add(arg)
+        elif opt in ("-c", "--config"):
+            config_file = arg
 
-    if monitored_servers == []:
-        monitored_servers = ['localhost']
+    if config_file:
+        with open(config_file, 'r') as local_config_file:
+            config = yaml.load(local_config_file)
+    else:
+        config = {
+            'mails': [],
+            'sms_apis': [],
+            'cachet_apis': [],
+            'monitoring_servers': [],
+            'monitored_servers': monitored_servers,
+        }
+    config['mails'] = set(config['mails'])
+    config['sms_apis'] = set(config['sms_apis'])
+    config['cachet_apis'] = set(config['cachet_apis'])
+    config['monitoring_servers'] = set(config['monitoring_servers'])
+    config['monitored_servers'] = set(config['monitored_servers'])
+
+    for opt, arg in opts:
+        if opt in ("-m", "--mail"):
+            config['mails'].add(arg)
+        elif opt in ("-s", "--sms"):
+            config['sms_apis'].add(arg)
+        elif opt in ("-C", "--cachet"):
+            config['cachet_apis'].add(arg)
+        elif opt in ("-e", "--encrypt-for"):
+            config['monitoring_servers'].add(arg)
+
+
+    if config['monitored_servers'] == []:
+        config['monitored_servers'] = ['localhost']
     
     logging.debug("Mails: %s" % (mails))
 
@@ -324,10 +345,10 @@ def main(argv):
     IP.v6 = socket.has_ipv6 and not check_ping("wikipedia.org", ['v6'])
     if not IP.v4 and not IP.v6:
         logging.debug('No connexion')
-        if 'localhost' not in monitored_servers:
+        if 'localhost' not in config['monitored_servers']:
             sys.exit(2)
         logging.debug('only local test will run')
-        monitored_servers = ['localhost']
+        config['monitored_servers'] = ['localhost']
 
     # Create well-known dir
     try:
@@ -339,7 +360,7 @@ def main(argv):
     # Load or download monitoring description of each server, convert
     # monitoring instructions, execute it
     logging.debug('Load or download monitoring description of each server, convert monitoring instructions, execute it')
-    threads = [ServerMonitor(server, monitoring_servers) for server in monitored_servers]
+    threads = [ServerMonitor(server, config['monitoring_servers']) for server in config['monitored_servers']]
     for thread in threads:
         thread.start()
     
@@ -372,11 +393,11 @@ def main(argv):
     # Trigger some actions
     logging.debug('Trigger some actions')
     if mails:
-        mail_alert(filtered, mails)
+        mail_alert(filtered, config['mails'])
     
     if sms_apis:
-        sms_alert(filtered, sms_apis)
-    #cachet_alert(alerts, ynh_maps, cachet_apis)
+        sms_alert(filtered, config['sms_apis'])
+    #cachet_alert(alerts, ynh_maps, config['cachet_apis'])
 
     #if 'localhost' in alerts:
     #    service_up(alerts['localhost'].get('service_up', []))
