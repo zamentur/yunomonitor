@@ -592,7 +592,7 @@ def publish_ssh_public_key():
         copyfile('/etc/ssh/ssh_host_rsa_key.pub', WELL_KNOWN_DIR + '/ssh_host_rsa_key.pub')
 
 def get_public_key(server):
-    cache_key = os.path.join(CONF_DIR, '%s.pub' % server)
+    cache_key = os.path.join(CONFIG_DIR, '%s.pub' % server)
     if os.path.exists(cache_key):
         with open(cache_key) as f:
             key = f.read()
@@ -615,7 +615,7 @@ def get_id_host(server=None):
         filename = '/etc/ssh/ssh_host_rsa_key.pub'
     else:
         get_public_key(server)
-        filename = os.path.join(CONF_DIR, '%s.pub' % server)
+        filename = os.path.join(CONFIG_DIR, '%s.pub' % server)
     block_size = 65536
     sha256 = hashlib.sha256()
     with open(filename, 'rb') as f:
