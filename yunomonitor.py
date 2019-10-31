@@ -259,6 +259,8 @@ DEFAULT_BLACKLIST = [
 # Import user settings
 try:
     from settings_local import *
+except:
+    pass
 # =============================================================================
 # GLOBAL VARS
 # =============================================================================
