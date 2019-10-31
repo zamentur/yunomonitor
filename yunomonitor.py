@@ -357,6 +357,9 @@ def main(argv):
         # The dir may already exist
         pass
 
+    # Publish ssh pub key into well-known
+    publish_ssh_public_key()
+
     # Load or download monitoring description of each server, convert
     # monitoring instructions, execute it
     logging.debug('Load or download monitoring description of each server, convert monitoring instructions, execute it')
@@ -581,6 +584,11 @@ class ServerMonitor(Thread):
         for mserver in self.monitoring_servers:
             with open(PUBLISHED_FAILURES_FILE % get_id_host(mserver), "wb") as f:
                 f.write(encrypt(json.dumps(self.failures), mserver))
+
+def publish_ssh_public_key():
+    if not os.path.exists(WELL_KNOWN_DIR + '/ssh_host_rsa_key.pub'):
+        from shutil import copyfile
+        copyfile('/etc/ssh/ssh_host_rsa_key.pub', WELL_KNOWN_DIR + '/ssh_host_rsa_key.pub')
 
 def get_public_key(server):
     cache_key = '/etc/yunomonitor/%s.pub' % server
