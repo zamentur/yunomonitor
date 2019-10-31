@@ -117,9 +117,9 @@ MONITORING_ERRORS = {
     'BROKEN_NAMESERVER': {'level': 'critical', 'first': 3, 'frequency': 3, 
                 'user': "Un problème de connectivité interne pourrait créer des dysfonctionnements",
                 'admin': "Le serveur de nom à l’adresse {ip} est injoignable"},
-    'TIMEOUT': {'level': 'critical', 'first': 3, 'frequency': 3, 
-                'user': "Un problème de connectivité interne pourrait créer des dysfonctionnements",
-                'admin': "Le serveur de nom à l’adresse {ip} est trop lent"},
+#    'TIMEOUT': {'level': 'critical', 'first': 3, 'frequency': 3, 
+#                'user': "Un problème de connectivité interne pourrait créer des dysfonctionnements",
+#                'admin': "Le serveur de nom à l’adresse {ip} est trop lent"},
     'NO_ANSWER': {'level': 'critical', 'first': 2, 'frequency': 3, 
                 'user': "Le service n’est pas joignable car le nom de domaine {domain} n’est pas correctement configuré.",
                 'admin': "Le nom de domaine {domain} n’est pas configuré."},
@@ -262,6 +262,7 @@ DEFAULT_BLACKLIST = [
 # =============================================================================
 
 
+#logging.basicConfig(level=logging.DEBUG)
 # =============================================================================
 
 # =============================================================================
@@ -285,7 +286,7 @@ def display_help(error=0):
 
 
 def main(argv):
-    
+    start_time = time.time()    
     # Parse arguments
     try:
         opts, monitored_servers = getopt.getopt(argv, "hm:s:c:e:", 
@@ -293,7 +294,10 @@ def main(argv):
                                                  "encrypt-for="])
     except getopt.GetoptError:
         display_help(2)
-
+    
+    logging.debug("Given options: %s" % (opts))
+    logging.debug("Servers to monitor: %s" % (monitored_servers))
+    
     mails = set()
     sms_apis = set()
     cachet_apis = set()
@@ -312,6 +316,8 @@ def main(argv):
 
     if monitored_servers == []:
         monitored_servers = ['localhost']
+    
+    logging.debug("Mails: %s" % (mails))
 
     # If we are offline in IPv4 and IPv6 execute only local checks
     IP.v4 = not check_ping("wikipedia.org", ['v4'])
@@ -323,19 +329,25 @@ def main(argv):
         logging.debug('only local test will run')
         monitored_servers = ['localhost']
 
+    # Create well-known dir
+    os.mkdir(WELL_KNOWN_DIR)
+
     # Load or download monitoring description of each server, convert
     # monitoring instructions, execute it
+    logging.debug('Load or download monitoring description of each server, convert monitoring instructions, execute it')
     threads = [ServerMonitor(server, monitoring_servers) for server in monitored_servers]
     for thread in threads:
         thread.start()
     
     alerts = {}
     # Wait for all thread
+    logging.debug('Waiting for all threads')
     for thread in threads:
         thread.join()
         alerts[thread.server]=thread.failures
 
     # Filter by reccurence
+    logging.debug('Filter by reccurences')
     filtered = {}
     for server, failures in alerts.items():
         filtered[server] = {}
@@ -345,13 +357,16 @@ def main(argv):
             filtered[server][message] = []
             
             for report in reports:
+                logging.debug(report)
+                logging.debug("first: %d freq: %d" %(first, freq))
                 if (report['count'] - first) % freq == 0:
                     report['level'] = MONITORING_ERRORS[message]['level']
                     filtered[server][message].append(report)
-            if filtered[server][message]:
+            if not filtered[server][message]:
                 del filtered[server][message]
     
     # Trigger some actions
+    logging.debug('Trigger some actions')
     if mails:
         mail_alert(filtered, mails)
     
@@ -361,7 +376,7 @@ def main(argv):
 
     #if 'localhost' in alerts:
     #    service_up(alerts['localhost'].get('service_up', []))
-
+    logging.debug("===================> %f s" % (start_time - time.time()))
 
 def detect_internet_protocol():
     global ip
@@ -382,6 +397,7 @@ class ServerMonitor(Thread):
         self.failures = {}
 
     def run(self):
+        logging.debug("Run monitoring on %s" % (self.server))
         self.ynh_maps[self.server] = self._load_monitoring_config()
         self._monitor()
         self._count()
@@ -423,14 +439,19 @@ class ServerMonitor(Thread):
             # configuration
             else:
                 config_url = REMOTE_MONITORING_CONFIG_FILE % (self.server, get_id_host())
+                logging.info("Try to download the remote config : %s" % (config_url))
                 try:
                     r = requests.get(config_url, timeout=15)
                 except Exception as e:
                     r = None
                 if r is None or r.status_code != 200 and os.path.exists(cache_config):
                     logging.warning('Unable to download autoconfiguration file, the old one will be used')
-                    with open(cache_config, 'r') as cache_config_file:
-                        return yaml.load(cache_config_file)
+                    try:
+                        with open(cache_config, 'r') as cache_config_file:
+                            return yaml.load(cache_config_file)
+                    except FileNotFoundError as e:
+                        logging.error("Unable to load an old config too, yunomonitor is not able to monitor %s" %(self.server))
+                        raise 
                 
                 config = yaml.load(decrypt(r.content))
             
@@ -441,7 +462,6 @@ class ServerMonitor(Thread):
 
 
     def _monitor(self):
-        
         to_monitor = self.ynh_maps[self.server].copy()
         del to_monitor['__components__']
         
@@ -462,12 +482,16 @@ class ServerMonitor(Thread):
                     check_name = "check_%s" % (category)
                     if isinstance(args, str):
                         args = [args]
+                    logging.debug("Run check: %s(%s)" % (check_name, args))
+                    start_time = time.time()
                     if isinstance(args, dict):
                         reports = globals()[check_name](**args)
                     else:
                         reports = globals()[check_name](*args)
                 except Exception as e:
                     reports = [('UNKNOWN_ERROR', {'check': category}, {'debug': str(e)})]
+                logging.debug("===> %f s" % (time.time() - start_time))
+                logging.debug(reports)
                 for report in reports:
                     if report[0] not in self.failures:
                         self.failures[report[0]] = self.failures.get(report[0], [])
@@ -476,6 +500,7 @@ class ServerMonitor(Thread):
                             'count': 1,
                             'extra': report[2] if len(report) >= 3 else {}
                         })
+
 
 
     def _count(self):
@@ -572,7 +597,7 @@ def encrypt(message, mserver):
     #return cipher.encrypt(message.encode())
 
 def decrypt(cipher_message):
-    return cipher_message
+    return cipher_message.decode()
     #with open('/etc/ssh/ssh_host_rsa_key') as f:
     #    key = RSA.importKey(f.read())
     #cipher = Cipher_PKCS1_v1_5.new(key)
@@ -709,7 +734,7 @@ def generate_monitoring_config():
         "disk_health": list(set(devices)),
         "free_space": [{}],
         "https_200": list(https_200),
-        "service_up": list(service_up),
+        "service_up": list({x if x!='' else 'php7.0-fpm' for x in service_up}),
         "backuped": list(backuped),
         "__components__": apps,
     }
@@ -1027,7 +1052,9 @@ def check_smtp(hostname, ports=[25, 587], blacklist=True):
                 
                 # Check rbl
                 if blacklist:
-                    errors += check_blacklisted(addr, hostname)
+                    logging.debug('Start check rbl')
+                    #errors += check_blacklisted(addr, hostname)
+                    logging.debug('End check rbl')
 
                 if not IP.v4 and '.' in addr:
                     logging.debug('No IPv4 connexion, can\'t check SMTP %s' % addr)
@@ -1036,7 +1063,6 @@ def check_smtp(hostname, ports=[25, 587], blacklist=True):
                 if not IP.v6 and ':' in addr:
                     logging.debug('No IPv6 connexion, can\'t check SMTP %s' % addr)
                     continue
-
     # Check SMTP works
     for port in ports:
         for mx_domain in mx_domains:
@@ -1331,6 +1357,7 @@ def service_up(alerts):
 
 @need_connexion
 def mail_alert(alerts, mails):
+    logging.debug(alerts)
     for server, failures in alerts.items():
         for message, reports in failures.items():
             for report in reports:
