@@ -200,10 +200,11 @@ ALERT_FREQUENCY = 3
 # Update monitoring configuration each hours
 CACHE_DURATION_IN_MINUTES = 60
 
+WORKING_DIR = os.path.abspath(os.path.dirname(__file__))
 WELL_KNOWN_URI = 'https://%s/.well-known/yunomonitor/'
 REMOTE_MONITORING_CONFIG_FILE = os.path.join(WELL_KNOWN_URI, '%s.to_monitor')
 REMOTE_FAILURES_FILE = os.path.join(WELL_KNOWN_URI, '%s.failures')
-WELL_KNOWN_DIR = 'well-known/'
+WELL_KNOWN_DIR = os.path.join(WORKING_DIR, 'well-known/')
 PUBLISHED_FAILURES_FILE = os.path.join(WELL_KNOWN_DIR, "%s.failures")
 PUBLISHED_MONITORING_CONFIG_FILE = os.path.join(WELL_KNOWN_DIR, "%s.to_monitor")
 PUBLIC_KEY_URI = os.path.join(WELL_KNOWN_URI, "ssh_host_rsa_key.pub")
@@ -214,7 +215,7 @@ ping:
         messages:
             - some.domain.tld no ipv4 ping
 """
-CONFIG_DIR = "conf/"
+CONFIG_DIR = os.path.join(WORKING_DIR, "conf/")
 MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "%s.yml")
 CACHE_MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "%s.cache.yml")
 FAILURES_FILE = os.path.join(CONFIG_DIR, "%s.failures.yml")
