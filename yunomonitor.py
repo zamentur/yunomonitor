@@ -483,7 +483,9 @@ class ServerMonitor(Thread):
                         raise 
                 
                 config = yaml.load(decrypt(r.content))
-            
+                if isinstance(config, str):
+                    raise Exception("Unable to autoconfigure things to monitor for %s" % (self.server))
+
             # Write the configuration in cache
             with open(cache_config, 'w') as cache_config_file:
                 yaml.dump(config, cache_config_file, default_flow_style=False)
