@@ -461,7 +461,7 @@ class ServerMonitor(Thread):
                 
                 # Encrypt and publish to let the monitoring server to download it
                 for mserver in self.monitoring_servers:
-                    with open(PUBLISHED_MONITORING_CONFIG_FILE % get_id_host(mserver), 'wb') as publish_config_file:
+                    with open(PUBLISHED_MONITORING_CONFIG_FILE % get_id_host(mserver), 'wb+') as publish_config_file:
                         publish_config_file.write(encrypt(yaml.dump(config), mserver))
             
             # If the server to monitor is on remote, we try to download the 
@@ -487,7 +487,7 @@ class ServerMonitor(Thread):
                     raise Exception("Unable to autoconfigure things to monitor for %s" % (self.server))
 
             # Write the configuration in cache
-            with open(cache_config, 'w') as cache_config_file:
+            with open(cache_config, 'w+') as cache_config_file:
                 yaml.dump(config, cache_config_file, default_flow_style=False)
             return config
 
@@ -578,14 +578,14 @@ class ServerMonitor(Thread):
     def _save(self):
         failures_file = FAILURES_FILE % (self.server)
         # Save failures in /etc file
-        with open(failures_file, "w") as f:
+        with open(failures_file, "w+") as f:
             json.dump(self.failures, f)
 
 
     def _publish(self):
         # Publish failures
         for mserver in self.monitoring_servers:
-            with open(PUBLISHED_FAILURES_FILE % get_id_host(mserver), "wb") as f:
+            with open(PUBLISHED_FAILURES_FILE % get_id_host(mserver), "wb+") as f:
                 f.write(encrypt(json.dumps(self.failures), mserver))
 
 def publish_ssh_public_key():
@@ -607,7 +607,7 @@ def get_public_key(server):
             return None
         
         key = r.text
-        with open(cache_key % server, 'w') as f:
+        with open(cache_key % server, 'w+') as f:
             f.write(r.text)
     return key
 
@@ -1412,7 +1412,7 @@ def mail_alert(alerts, mails):
                 subject = MAIL_SUBJECT.format(**context)
                 body = MAIL_BODY.format(**context)
 
-                open("/tmp/monitoring-body", "w").write(body)
+                open("/tmp/monitoring-body", "w+").write(body)
                 os.system("mail -s '%s' %s < /tmp/monitoring-body" % (subject, ' '.join(mails)))
 
 
