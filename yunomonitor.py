@@ -453,7 +453,11 @@ class ServerMonitor(Thread):
                 minutes = (time.time() - os.path.getmtime(cache_config)) / 60
                 if minutes < CACHE_DURATION_IN_MINUTES:
                     with open(cache_config, 'r') as cache_config_file:
-                        return yaml.load(cache_config_file)
+                        config = yaml.load(cache_config_file)
+                    
+                    # In case the cache config is in a bad format (404 content...)
+                    if not isinstance(config, str):
+                        return config
             
             # If we are on the server to monitor, generate the configuration
             if self.server == 'localhost':
