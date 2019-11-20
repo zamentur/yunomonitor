@@ -1347,7 +1347,7 @@ def _get_domain_expiration(domain):
     out = out.decode("utf-8").split('\n')
     p1.terminate()
     p2.terminate()
-    if len(out) > 1:
+    if len(out) >= 1:
         match = re.search(r'\d{4}-\d{2}-\d{2}', out[0])
         return datetime.strptime(match.group(), '%Y-%m-%d')
     else:
@@ -1437,6 +1437,7 @@ def mail_alert(alerts, mails):
 
 @need_connexion
 def sms_alert(alerts, sms_apis):
+    logging.debug(sms_apis)
     body = []
     for server, failures in alerts.items():
         body += ["[%s]" % (server)]
