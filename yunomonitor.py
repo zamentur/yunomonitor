@@ -1421,9 +1421,12 @@ def mail_alert(alerts, mails):
                     'target': ', '.join([str(x) for x in report['target'].values()]),
                     'extra': yaml.dump(report['extra']),
                 }
-                context['user_info'] = MONITORING_ERRORS[message]['user'].format(**info)
-                context['admin_info'] = MONITORING_ERRORS[message]['admin'].format(**info)
-                
+                try:
+                    context['user_info'] = MONITORING_ERRORS[message]['user'].format(**info)
+                    context['admin_info'] = MONITORING_ERRORS[message]['admin'].format(**info)
+                except:
+                    context['user_info'] = "An error occured during message creation"
+                    context['admin_info'] = "An error occured during message creation"
 
                 subject = MAIL_SUBJECT.format(**context)
                 body = MAIL_BODY.format(**context)
