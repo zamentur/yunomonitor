@@ -1245,7 +1245,7 @@ def check_free_space(warning=1500, error=600, critical=200, paths=None):
         if not os.path.ismount(path):
             continue
         total, used, free = shutil.disk_usage(path)
-        disk_usage = {'path': path, 'total': total, 'free': free}
+        disk_usage = {'path': path, 'total': "%d MB" % (int(total) / 1024 / 1024), 'free': "%d MB" % (int(free) / 1024 / 1024)}
         if free == 0:
             errors.append(('NO_FREE_SPACE', disk_usage))
         if free < critical * 1024 * 1024:
