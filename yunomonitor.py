@@ -786,7 +786,7 @@ def generate_monitoring_config():
         "disk_health": list(set(devices)),
         "free_space": [{}],
         "https_200": list(https_200),
-        "service_up": list({x if x!='' else 'php7.0-fpm' for x in service_up}),
+        "service_up": list({x if x!='' and x!='php5-fpm' else 'php7.0-fpm' for x in service_up}),
         "backuped": list(backuped),
         "__components__": apps,
     }
