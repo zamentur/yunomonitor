@@ -1429,7 +1429,7 @@ def mail_alert(alerts, mails):
                 body = MAIL_BODY.format(**context)
 
                 open("/tmp/monitoring-body", "w", encoding="utf-8").write(body)
-                os.system("mail -s '%s' %s < /tmp/monitoring-body" % (subject, ' '.join(mails)))
+                os.system("mail -a 'Content-Type: text/plain; charset=UTF-8' -s '%s' %s < /tmp/monitoring-body" % (subject, ' '.join(mails)))
 
 
 @need_connexion
