@@ -1158,17 +1158,17 @@ def check_smtp(hostname, ports=[25, 587], blacklist=True):
 
 
 @need_connexion
-def check_imap():
+def check_imap(domain):
     return []
 
 
 @need_connexion
-def check_pop():
+def check_pop(domain):
     return []
 
 
 @need_connexion
-def check_xmpp():
+def check_xmpp(domain):
     return []
 
 
