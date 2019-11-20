@@ -611,7 +611,7 @@ def get_public_key(server):
             return None
         
         key = r.text
-        with open(cache_key % server, 'w') as f:
+        with open(cache_key, 'w') as f:
             f.write(r.text)
     return key
 
