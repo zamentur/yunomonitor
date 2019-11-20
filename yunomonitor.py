@@ -687,7 +687,7 @@ def generate_monitoring_config():
                 "name": "Admin",
                 "label": "Administration",
                 "uris": ["%s/yunohost/admin/" % (current_host),
-                         "%s/yunohost/api/" % (current_host)],
+                         "%s/yunohost/api/installed" % (current_host)],
                 "services": ["nginx", "slapd", "ssh", "yunohost-api",
                              "systemd-logind"]
             },
