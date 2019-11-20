@@ -475,20 +475,20 @@ class ServerMonitor(Thread):
                 logging.info("Try to download the remote config : %s" % (config_url))
                 try:
                     r = requests.get(config_url, timeout=15)
+                    assert r.status_code == 200, "Fail to download the configuration"
+                    config = yaml.load(decrypt(r.content))
+                    assert not isinstance(config, str), "Misformed downloaded configuration"
                 except Exception as e:
-                    r = None
-                if (r is None or r.status_code != 200) and os.path.exists(cache_config):
                     logging.warning('Unable to download autoconfiguration file, the old one will be used')
                     try:
                         with open(cache_config, 'r') as cache_config_file:
-                            return yaml.load(cache_config_file)
+                            cconfig = yaml.load(cache_config_file)
                     except FileNotFoundError as e:
-                        logging.error("Unable to load an old config too, yunomonitor is not able to monitor %s" %(self.server))
-                        raise 
-                
-                config = yaml.load(decrypt(r.content))
-                if isinstance(config, str):
-                    raise Exception("Unable to autoconfigure things to monitor for %s" % (self.server))
+                        cconfig = ''
+
+                    assert not isinstance(cconfig, str), "Unable to load an old config too, yunomonitor is not able to monitor %s" % (self.server)
+
+                    return cconfig
 
             # Write the configuration in cache
             with open(cache_config, 'w') as cache_config_file:
