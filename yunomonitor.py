@@ -711,9 +711,14 @@ def generate_monitoring_config():
         apps_dir = glob.glob('/etc/yunohost/apps/*')
 
         for app_dir in apps_dir:
-            with open(os.path.join(app_dir, 'settings.yml'), 'r') as settings_file:
-                app_settings = yaml.load(settings_file)
-            
+            try:
+                with open(os.path.join(app_dir, 'settings.yml'), 'r') as settings_file:
+                    app_settings = yaml.load(settings_file)
+                with open(os.path.join(app_dir, 'manifest.json'), 'r') as manifest_file:
+                    app_manifest = json.load(manifest_file)
+            except:
+                continue
+
             uris = []
             if 'unprotected_uris' in app_settings or 'skipped_uris' in app_settings:
                 if 'domain' in app_settings:
@@ -724,15 +729,12 @@ def generate_monitoring_config():
                     if 'skipped_uris' in app_settings:
                         uris.append(app_settings['domain'] + app_settings['skipped_uris'])
 
-            with open(os.path.join(app_dir, 'manifest.json'), 'r') as manifest_file:
-                app_manifest = json.load(manifest_file)
-
             cmd = "grep -Ehor \"yunohost service add ([^ ]+)\""
             cmd += " /etc/yunohost/apps/%s/scripts/" % app_settings['id']
             cmd += " | cut -d ' ' -f4 | sed s/\$app/%s/g" % app_settings['id']
             p = Popen(cmd.split(), stdout=PIPE, stderr=PIPE)
             out, _ = p.communicate()
-            
+
             services = app_manifest['services'] if 'services' in app_manifest else []
             services = set(services)
 
@@ -744,8 +746,10 @@ def generate_monitoring_config():
                 "name": app_manifest['name'],
                 "label": app_settings['label'],
                 "uris": uris,
-                "services": app_manifest['services']
+                "services": []
             }
+            if 'services' in app_manifest:
+                app["services"] = app_manifest['services']
             if app['name'] in ["Borg", "Archivist"]:
                 if app['name'] == "Archivist" or app_settings['apps'] == 'all':
                     app['backup'] = [x[19:] for x in apps_dir]
