@@ -1420,7 +1420,7 @@ def mail_alert(alerts, mails):
                 subject = MAIL_SUBJECT.format(**context)
                 body = MAIL_BODY.format(**context)
 
-                open("/tmp/monitoring-body", "w").write(body)
+                open("/tmp/monitoring-body", "w", encoding="utf-8").write(body)
                 os.system("mail -s '%s' %s < /tmp/monitoring-body" % (subject, ' '.join(mails)))
 
 
