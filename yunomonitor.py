@@ -102,6 +102,9 @@ MONITORING_ERRORS = {
     'HTTP_502': {'level': 'critical', 'first': 2, 'frequency': 3, 
                 'user': "Le service semble en panne",
                 'admin': "Le service s’est eteint"},
+    'HTTP_503': {'level': 'critical', 'first': 2, 'frequency': 3, 
+                'user': "Le service semble en panne",
+                'admin': "Le service est injoignable"},
     'DOMAIN_EXPIRATION_NOT_FOUND': {'level': 'info', 'first': 1, 'frequency': 180, 
                 'user': "",
                 'admin': ""},
@@ -339,6 +342,9 @@ def main(argv):
     if config['monitored_servers'] == set():
         config['monitored_servers'] = ['localhost']
     
+    if 'logging_level' in config and config['logging_level'] in logging:
+        logging.basicConfig(level=logging[config['logging_level']])
+
     logging.debug("Config: %s" % (config))
 
     # If we are offline in IPv4 and IPv6 execute only local checks
