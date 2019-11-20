@@ -387,6 +387,8 @@ def main(argv):
     for server, failures in alerts.items():
         filtered[server] = {}
         for message, reports in failures.items():
+            if not message in MONITORING_ERRORS:
+                message = 'UNKNOWN_ERROR'
             first = MONITORING_ERRORS[message]['first']
             freq = MONITORING_ERRORS[message]['frequency']
             filtered[server][message] = []
