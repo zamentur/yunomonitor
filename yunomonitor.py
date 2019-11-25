@@ -1094,15 +1094,6 @@ def check_smtp(hostname, ports=[25, 587], blacklist=True):
             # Try to do the request for each ips
             for addr, _ports in addrs.items():
 
-                # Check Reverse DNS
-                try:
-                    name, _, _ = socket.gethostbyaddr(addr)
-                except socket.herror as e:
-                    errors.append(('REVERSE_MISSING', {'domain': hostname, 'ip': addr}))
-                else:
-                    if name != mx_domain:
-                        errors.append(('REVERSE_MISMATCH', {'domain': hostname, 'ip': addr}, {'get': name, 'expected': mx_domain}))
-                
                 # Check rbl
                 if blacklist:
                     logging.debug('Start check rbl')
@@ -1136,7 +1127,16 @@ def check_smtp(hostname, ports=[25, 587], blacklist=True):
                     server = None
                     try:
                         server = smtplib.SMTP(addr, port, timeout=10) 
-                        server.ehlo()
+                        ehlo = server.ehlo()
+                        try:
+                            ehlo_domain = ehlo[1].decode("utf-8").split("\n")[0]
+                            name, _, _ = socket.gethostbyaddr(addr)
+                        except socket.herror as e:
+                            errors.append(('REVERSE_MISSING', {'domain': ehlo_domain, 'ip': addr}))
+                        else:
+                            if name != ehlo_domain:
+                                errors.append(('REVERSE_MISMATCH', {'domain': ehlo_domain, 'ip': addr}, {'get': name, 'expected': ehlo_domain}))
+                
                         server.starttls()
 
                         # Check certificate
