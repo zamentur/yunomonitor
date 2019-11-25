@@ -134,10 +134,10 @@ MONITORING_ERRORS = {
                 'admin': "Aucune configuration MX pour le domaine {domain}. Certains mails pourraient être calssé en SPAM."},
     'REVERSE_MISSING': {'level': 'critical', 'first': 1, 'minutes': 30, 
                 'user': "Un problème de configuration des mails a été détecté. Certains mails pourraient tombés en SPAM.",
-                'admin': "Le DNS inversé n’a pas été configuré pour l’ip {ip} et le domaine {domain}. Le serveur pourraient être blacklisté et certains mails pourraient être classé en SPAM"},
+                'admin': "Le DNS inversé n’a pas été configuré pour l’ip {ip} et le domaine {ehlo_domain}. Le serveur pourraient être blacklisté et certains mails en@{domain} pourraient être classé en SPAM"},
     'REVERSE_MISMATCH': {'level': 'critical', 'first': 1, 'minutes': 30, 
                 'user': "Un problème de configuration des mails a été détecté. Certains mails pourraient tombés en SPAM.",
-                'admin': "Le DNS inversé pour l’ip {ip} est configuré pour le domaine {domain1} au lieu de domaine {domain2}. Le serveur pourraient être blacklisté et certains mails pourraient être classé en SPAM"},
+                'admin': "Le DNS inversé pour l’ip {ip} est configuré pour le domaine {reverse_dns} au lieu de domaine {ehlo_domain}. Le serveur pourraient être blacklisté et certains mails en @{domain} pourraient être classé en SPAM"},
     'BLACKLISTED': {'level': 'critical', 'first': 1, 'minutes': 30, 
                 'user': "L’ip du serveur a été blacklistée par {rbl}. Certains mails pourraient tombés en SPAM.",
                 'admin': "L’ip du serveur a été blacklistée par {rbl}. Certains mails pourraient tombés en SPAM."},
@@ -1132,10 +1132,10 @@ def check_smtp(hostname, ports=[25, 587], blacklist=True):
                             ehlo_domain = ehlo[1].decode("utf-8").split("\n")[0]
                             name, _, _ = socket.gethostbyaddr(addr)
                         except socket.herror as e:
-                            errors.append(('REVERSE_MISSING', {'domain': ehlo_domain, 'ip': addr}))
+                            errors.append(('REVERSE_MISSING', {'domain': hostname, 'ip': addr}, {'ehlo_domain': ehlo_domain}))
                         else:
                             if name != ehlo_domain:
-                                errors.append(('REVERSE_MISMATCH', {'domain': ehlo_domain, 'ip': addr}, {'get': name, 'expected': ehlo_domain}))
+                                errors.append(('REVERSE_MISMATCH', {'domain': hostname, 'ip': addr}, {'reverse_dns': name, 'ehlo_domain': ehlo_domain}))
                 
                         server.starttls()
 
