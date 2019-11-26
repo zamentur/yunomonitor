@@ -973,11 +973,24 @@ def check_https_200(url):
             try:
 
                 session = requests.Session()
+                
+                # We want to test HTTPS response on a specific IP, to achieve
+                # that we replace the domain name by the IP, but it cause
+                # several issue related SNI and certificate hostname comparison
+                
+                # Fix hostname comparison issue, by using Host header
                 adapter = host_header_ssl.HostHeaderSSLAdapter()
+
+                # Fix SNI issue when we use IP instead of domain
+                # https://github.com/requests/toolbelt/issues/159
                 context = MySSLContext(domain)
                 adapter.init_poolmanager(10, 10, ssl_context=context)
-                session.mount('https://', adapter)
-                r = session.get("https://" + addr + path, 
+                
+                # Use this specific adapter only for the first request, we
+                # don't want to use it with redirected request.
+                session.mount('https://' + addr + path, adapter)
+                
+                req = session.get("https://" + addr + path, 
                                     headers={'Host': domain}, 
                                     timeout=HTTP_TIMEOUT)
             except requests.exceptions.SSLError as e:
@@ -993,9 +1006,9 @@ def check_https_200(url):
             except Exception as e:
                 to_report['UNKNOWN_ERROR'][protocol][addr] = {'debug': str(e)}
             else:
-                if r.status_code != 200:
+                if not res.ok:
                     to_report['HTTP_%d' % r.status_code][protocol][addr] = {}
-                elif r.history[0].status_code == 302 and 'yunohost/sso' in r.url:
+                elif r.is_redirect and 'yunohost/sso' in r.url:
                     to_report['SSO_CAPTURE'][protocol][addr] = {}
             finally:
                 session.close()
