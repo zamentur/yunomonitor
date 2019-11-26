@@ -1009,10 +1009,17 @@ def check_https_200(url):
                 # Use this specific adapter only for the first request, we
                 # don't want to use it with redirected request.
                 session.mount('https://' + addr + path, adapter)
-                
-                req = session.get("https://" + addr + path, 
-                                    headers={'Host': domain}, 
-                                    timeout=HTTP_TIMEOUT)
+               
+                req = requests.Request('GET', "https://" + addr + path,
+                                       headers={'Host': domain})
+                r = req.prepare()
+                res = session.send(r, allow_redirects=False)
+                # Remove Host headers to avoid TOO MANY REDIRECTIONS bug
+                del r.headers['Host']
+                for redirected_res in s.resolve_redirects(res,r):
+                    sso |= res.status_code == '302'  and '/yunohost/sso' in res.headers['location']
+                    res = redirected_res
+            
             except requests.exceptions.SSLError as e:
                 to_report['CERT_INVALID'][protocol][addr] = {'debug': str(e)}
             except (requests.exceptions.ConnectionError,
@@ -1028,7 +1035,7 @@ def check_https_200(url):
             else:
                 if not res.ok:
                     to_report['HTTP_%d' % r.status_code][protocol][addr] = {}
-                elif r.is_redirect and 'yunohost/sso' in r.url:
+                elif sso:
                     to_report['SSO_CAPTURE'][protocol][addr] = {}
             finally:
                 session.close()
