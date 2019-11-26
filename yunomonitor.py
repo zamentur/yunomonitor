@@ -653,6 +653,14 @@ def decrypt(cipher_message):
     #return cipher.decrypt(cipher_message, None).decode()
 
 
+def get_local_dns_resolver():
+    if get_local_dns_resolver.dns_resolvers is None:
+        with open('/etc/resolv.dnsmasq.conf', 'r') as resolv_file:
+            get_local_dns_resolver.dns_resolvers = [x[11:].replace('\n', '') 
+                                                    for x in resolv_file.readlines()]
+    return get_local_dns_resolver.dns_resolvers
+get_local_dns_resolver.dns_resolvers = None
+
 def generate_monitoring_config():
     https_200 = set()
     service_up = set()
@@ -666,8 +674,7 @@ def generate_monitoring_config():
         domains = glob.glob('/etc/nginx/conf.d/*.*.conf')
         domains = [path[18:-5] for path in domains]
         
-        with open('/etc/resolv.dnsmasq.conf', 'r') as resolv_file:
-            dns_resolver = [x[11:].replace('\n', '') for x in resolv_file.readlines()]
+        dns_resolver = get_local_dns_resolver()
 
         # TODO personalize meta components
         apps = [
@@ -869,6 +876,19 @@ def check_ip_address(domain):
                                 for addr in addrs if addr[0] == socket.AF_INET6}
         except socket.gaierror:
             pass
+        
+        if '127.0.0.1' in cache[domain]['v4'].keys() or '::1' in cache[domain]['v6'].keys():
+            my_resolver = dns.resolver.Resolver()
+            my_resolver.nameservers = [get_local_dns_resolver()]
+            my_resolver.timeout = 10
+    
+            try:
+                cache[domain]['v4'] = {addr.to_text(): {}
+                                for addr in my_resolver.query(domain, 'A')}
+                cache[domain]['v6'] = {addr.to_text(): {}
+                                for addr in my_resolver.query(domain, 'AAAA')}
+            except Exception as e:
+                pass
 
     addrs = cache[domain]
     if not addrs['v4'] and not addrs['v6']:
