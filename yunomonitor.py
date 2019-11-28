@@ -789,7 +789,7 @@ def generate_monitoring_config():
         "ping": domains,
         "domain_renewal": domains,
         "smtp": domains,
-        "smtp_sender": domains,
+        "smtp_sender": [[domain, [25,587]] for domain in domains],
         "imap": domains,
         "xmpp": domains,
         "dns_resolver": list(set(dns_resolver)),
@@ -1159,7 +1159,7 @@ def check_one_smtp_hostname(hostname, port, receiver_only=False):
     return errors
 
 @need_connection
-def check_smtp(hostname, ports=[25, 587], blacklist=True):
+def check_smtp(hostname, ports=[25], blacklist=True):
     errors = []
     
     # Do check for all ips of all MX, check only reception capabilities
@@ -1173,8 +1173,8 @@ def check_smtp(hostname, ports=[25, 587], blacklist=True):
     for mx_domain in mx_domains:
         errors += check_ip_address(mx_domain)
     
-    for port in ports:
-        for mx_domain in mx_domains:
+    for mx_domain in mx_domains:
+        for port in ports:
             errors += check_one_smtp_hostname(mx_domain, port, receiver_only=True):
     
     return errors
@@ -1195,7 +1195,7 @@ def check_spf(smtp_sender, mail_domain):
     return errors
 
 @need_connection
-def check_smtp_sender(hostname, ports=[25, 587], blacklist=True):
+def check_smtp_sender(hostname, ports=[25], blacklist=True):
     errors = []
     errors += check_ip_address(hostname)
         
