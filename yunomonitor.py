@@ -38,6 +38,7 @@ import shutil
 import hashlib
 import re
 import urllib
+import spf
 from requests_toolbelt.adapters import host_header_ssl
 from threading import Thread
 from cryptography import x509
@@ -352,7 +353,7 @@ def main(argv):
     IP.v4 = not check_ping("wikipedia.org", ['v4'])
     IP.v6 = socket.has_ipv6 and not check_ping("wikipedia.org", ['v6'])
     if not IP.v4 and not IP.v6:
-        logging.debug('No connexion')
+        logging.debug('No connection')
         if 'localhost' not in config['monitored_servers']:
             sys.exit(2)
         logging.debug('only local test will run')
@@ -788,6 +789,7 @@ def generate_monitoring_config():
         "ping": domains,
         "domain_renewal": domains,
         "smtp": domains,
+        "smtp_sender": domains,
         "imap": domains,
         "xmpp": domains,
         "dns_resolver": list(set(dns_resolver)),
@@ -827,9 +829,9 @@ def _get_devices():
 # IDEA check average load
 # IDEA Check no attack
 
-def need_connexion(func):
+def need_connection(func):
     def wrapper(*args, **kwargs):
-        # Return no errors in case the monitoring server has no connexion
+        # Return no errors in case the monitoring server has no connection
         if not IP.connected:
             return []
     
@@ -862,7 +864,7 @@ def check_ping(hostname, proto=['v4', 'v6']):
 
 cache = {}
 
-@need_connexion
+@need_connection
 def check_ip_address(domain):
     global cache
     if domain not in cache:
@@ -895,14 +897,14 @@ def check_ip_address(domain):
         return [('DOMAIN_UNCONFIGURED', {'domain': domain})]
 
     if not (IP.v4 and addrs['v4']) and not (IP.v6 and addrs['v6']):
-        logging.warning('No connexion, can\'t check HTTP')
+        logging.warning('No connection, can\'t check HTTP')
     
     # Error if no ip v4 address match with the domain
     if not addrs['v4']:
         return [('DOMAIN_MISCONFIGURED_IN_IPV4', 
                                 {'domain': domain})]
     return []
-@need_connexion
+@need_connection
 def check_tls(domain, port=443):
     errors = check_ip_address(domain)
 
@@ -954,7 +956,7 @@ class MySSLContext(ssl.SSLContext):
             kwargs['server_hostname'] = self._my_server_hostname
             return super(MySSLContext, self).wrap_socket(*args, **kwargs)
 
-@need_connexion
+@need_connection
 def check_https_200(url):
     # Find all ips configured for the domain of the URL
     split_uri = url.split('/')
@@ -976,7 +978,7 @@ def check_https_200(url):
         ['HTTP_%d' % code for code in range(500, 599)]
     }
     if not IP.v4 and not addrs['v6']:
-        logging.warning('No connexion, can\'t check HTTP')
+        logging.warning('No connection, can\'t check HTTP')
         return []
     
     for protocol, addrs in cache[domain].items():
@@ -1043,7 +1045,7 @@ def check_https_200(url):
     errors += _aggregate_report_by_target(to_report, domain, {'url': url})
     return errors
 
-@need_connexion
+@need_connection
 def check_domain_renewal(domain, critical_limit=2, error_limit=7, warning_limit=30):
     expire_date = _get_domain_expiration(domain)
     
@@ -1059,14 +1061,14 @@ def check_domain_renewal(domain, critical_limit=2, error_limit=7, warning_limit=
         return [('DOMAIN_WILL_EXPIRE', {'domain': domain}, {'remaining_days': expire_in.days})]
     return []
 
-@need_connexion
+@need_connection
 def check_dns_resolver(resolver=None, hostname='wikipedia.org', qname='A', expected_results=None):
     # TODO reduce errors
     if resolver is None:
         my_resolver = dns.resolver
     elif (not IP.v4 and '.' in resolver) or \
          (not IP.v6 and ':' in resolver):
-        logging.debug('No connexion in this protocol to test the resolver')
+        logging.debug('No connection in this protocol to test the resolver')
         return []
     else:
         my_resolver = dns.resolver.Resolver()
@@ -1088,7 +1090,7 @@ def check_dns_resolver(resolver=None, hostname='wikipedia.org', qname='A', expec
                      {'get': set(answers), 'expected': set(expected_results)})]
     return []
 
-@need_connexion
+@need_connection
 def check_blacklisted(addr, hostname):
     errors = []
     for bl, description in DEFAULT_BLACKLIST:
@@ -1108,107 +1110,129 @@ def check_blacklisted(addr, hostname):
         errors.append(('BLACKLISTED', {'domain': hostname, 'ip': addr}, {'rbl': bl, 'rbl_description': description, 'txt': reason_or_link}))
     return errors
 
-@need_connexion
+def check_one_smtp_hostname(hostname, port, receiver_only=False):
+    errors = []
+    to_report = {msg: {'v4':{}, 'v6': {}} for msg in [
+        'CERT_RENEWAL_FAILED',
+        'PORT_CLOSED_OR_SERVICE_DOWN'
+    ]}
+    for protocol, addrs in cache[hostname].items():
+        if not IP[protocol] or not addrs:
+            continue
+    
+        # Try to do the request for each ips
+        for addr, _ports in addrs.items():
+            if port in _ports and _ports[port] == 'notworking':
+                continue
+
+            server = None
+            try:
+                server = smtplib.SMTP(addr, port, timeout=10) 
+                ehlo = server.ehlo()
+                if not receiver_only:
+                    try:
+                        ehlo_domain = ehlo[1].decode("utf-8").split("\n")[0]
+                        name, _, _ = socket.gethostbyaddr(addr)
+                    except socket.herror as e:
+                        errors.append(('REVERSE_MISSING', {'domain': hostname, 'ip': addr}, {'ehlo_domain': ehlo_domain}))
+                    else:
+                        if name != ehlo_domain:
+                            errors.append(('REVERSE_MISMATCH', {'domain': hostname, 'ip': addr}, {'reverse_dns': name, 'ehlo_domain': ehlo_domain}))
+        
+                server.starttls()
+
+                # Check certificate
+                pem = ssl.DER_cert_to_PEM_cert(server.sock.getpeercert(binary_form=True))
+                cert = x509.load_pem_x509_certificate(pem.encode(), default_backend())
+                notAfter = cert.not_valid_after
+                expire_in = notAfter - datetime.now()
+                if expire_in < timedelta(14):
+                    to_report['CERT_RENEWAL_FAILED'][protocol][addr] = {'remaining_days': expire_in.days}
+            except OSError:
+                to_report['PORT_CLOSED_OR_SERVICE_DOWN'][protocol][addr] = {}
+                _ports[port] = 'notworking'
+            finally:
+                if server:
+                    server.quit()
+        errors += _aggregate_report_by_target(to_report, hostname,
+                                            {'domain': hostname, 'port': port})
+    return errors
+
+@need_connection
 def check_smtp(hostname, ports=[25, 587], blacklist=True):
-    # TODO check spf
-    # TODO check dkim
     errors = []
     
-    # Do check for all ips of all MX
+    # Do check for all ips of all MX, check only reception capabilities
     mx_domains = {mx.preference: mx.exchange.to_text(True) 
                   for mx in dns.resolver.query(hostname, 'MX')}
     mx_domains = [mx_domains[key] for key in sorted(mx_domains)]
     
     if not mx_domains:
         errors.append(('NO_MX_RECORD', {'domain': hostname}))
-        # If no MX consider A and AAAA records
-        mx_domains = [hostname]
 
     for mx_domain in mx_domains:
         errors += check_ip_address(mx_domain)
+    
+    for port in ports:
+        for mx_domain in mx_domains:
+            errors += check_one_smtp_hostname(mx_domain, port, receiver_only=True):
+    
+    return errors
 
-        for protocol, addrs in cache[mx_domain].items():
+@need_connection
+def check_spf(smtp_sender, mail_domain):
+    errors = []
+    errors += check_ip_address(smtp_sender)
+    for addrs in cache[smtp_sender].values():
+        for addr in addrs.keys():
+            status, message = spf.check2(i=addrs, s='org@'+mail_domain, h='grimaud.me')
+            if status == 'none':
+                errors += [('SPF_MISSING', {'domain': mail_domain}, {})]
+                break
+            elif status != 'pass':
+                errors += [('SPF_ERROR', {'domain': mail_domain, 'ip': addr}, 
+                            {'smtp_sender': smtp_sender, 'status': status, 'message': message})]
+    return errors
+
+@need_connection
+def check_smtp_sender(hostname, ports=[25, 587], blacklist=True):
+    errors = []
+    errors += check_ip_address(hostname)
+        
+    # Check rbl
+    if blacklist:
+        logging.debug('Start check rbl')
+        for protocol, addrs in cache[hostname].items():
             if not IP[protocol] or not addrs:
                 continue
         
             # Try to do the request for each ips
-            for addr, _ports in addrs.items():
+            for addr in addrs.keys():
+                #errors += check_blacklisted(addr, hostname)
+                pass
 
-                # Check rbl
-                if blacklist:
-                    logging.debug('Start check rbl')
-                    #errors += check_blacklisted(addr, hostname)
-                    logging.debug('End check rbl')
+        logging.debug('End check rbl')
 
-                if not IP.v4 and '.' in addr:
-                    logging.debug('No IPv4 connexion, can\'t check SMTP %s' % addr)
-                    continue
-                
-                if not IP.v6 and ':' in addr:
-                    logging.debug('No IPv6 connexion, can\'t check SMTP %s' % addr)
-                    continue
-    # Check SMTP works
+    # Check SPF
+    check_spf(hostname, hostname)
+
     for port in ports:
-        for mx_domain in mx_domains:
-            to_report = {msg: {'v4':{}, 'v6': {}} for msg in [
-                'CERT_RENEWAL_FAILED',
-                'PORT_CLOSED_OR_SERVICE_DOWN'
-            ]}
-
-            for protocol, addrs in cache[mx_domain].items():
-                if not IP[protocol] or not addrs:
-                    continue
-            
-                # Try to do the request for each ips
-                for addr, _ports in addrs.items():
-                    if port in _ports and _ports[port] == 'notworking':
-                        continue
-
-                    server = None
-                    try:
-                        server = smtplib.SMTP(addr, port, timeout=10) 
-                        ehlo = server.ehlo()
-                        try:
-                            ehlo_domain = ehlo[1].decode("utf-8").split("\n")[0]
-                            name, _, _ = socket.gethostbyaddr(addr)
-                        except socket.herror as e:
-                            errors.append(('REVERSE_MISSING', {'domain': hostname, 'ip': addr}, {'ehlo_domain': ehlo_domain}))
-                        else:
-                            if name != ehlo_domain:
-                                errors.append(('REVERSE_MISMATCH', {'domain': hostname, 'ip': addr}, {'reverse_dns': name, 'ehlo_domain': ehlo_domain}))
-                
-                        server.starttls()
-
-                        # Check certificate
-                        pem = ssl.DER_cert_to_PEM_cert(server.sock.getpeercert(binary_form=True))
-                        cert = x509.load_pem_x509_certificate(pem.encode(), default_backend())
-                        notAfter = cert.not_valid_after
-                        expire_in = notAfter - datetime.now()
-                        if expire_in < timedelta(14):
-                            to_report['CERT_RENEWAL_FAILED'][protocol][addr] = {'remaining_days': expire_in.days}
-                    except OSError:
-                        to_report['PORT_CLOSED_OR_SERVICE_DOWN'][protocol][addr] = {}
-                        _ports[port] = 'notworking'
-                    finally:
-                        if server:
-                            server.quit()
-
-            errors += _aggregate_report_by_target(to_report, mx_domain,
-                                              {'domain': hostname, 'port': port})
+        errors += check_one_smtp_hostname(hostname, port):
+    
     return errors
 
 
-@need_connexion
+@need_connection
 def check_imap(domain):
     return []
 
 
-@need_connexion
+@need_connection
 def check_pop(domain):
     return []
 
 
-@need_connexion
+@need_connection
 def check_xmpp(domain):
     return []
 
@@ -1448,7 +1472,6 @@ def service_up(alerts):
     for service, message in alerts:
         pass
 
-@need_connexion
 def mail_alert(alerts, mails):
     logging.debug(alerts)
     for server, failures in alerts.items():
@@ -1476,7 +1499,6 @@ def mail_alert(alerts, mails):
                 os.system("mail -a 'Content-Type: text/plain; charset=UTF-8' -s '%s' %s < /tmp/monitoring-body" % (subject, ' '.join(mails)))
 
 
-@need_connexion
 def sms_alert(alerts, sms_apis):
     logging.debug(sms_apis)
     body = []

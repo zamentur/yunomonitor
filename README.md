@@ -41,6 +41,7 @@ This script is designed to run with these dependencies:
 * python3-yaml
 * python3-dnspython
 * python3-requests-toolbelt
+* python3-spf
 * whois
 * an SMTP server running on the machine
 
