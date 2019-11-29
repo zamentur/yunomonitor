@@ -271,7 +271,7 @@ except:
 # =============================================================================
 
 
-#logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 # =============================================================================
 
 # =============================================================================
@@ -371,6 +371,7 @@ def main(argv):
 
     # Load or download monitoring description of each server, convert
     # monitoring instructions, execute it
+    logging.info("CHECKING EACH SERVERS...")
     logging.debug('Load or download monitoring description of each server, convert monitoring instructions, execute it')
     threads = [ServerMonitor(server, config['monitoring_servers']) for server in config['monitored_servers']]
     for thread in threads:
@@ -384,7 +385,7 @@ def main(argv):
         alerts[thread.server]=thread.failures
 
     # Filter by reccurence
-    logging.debug('Filter by reccurences')
+    logging.info('FILTERING BY FREQUENCIES...')
     filtered = {}
     for server, failures in alerts.items():
         filtered[server] = {}
@@ -405,15 +406,17 @@ def main(argv):
                 del filtered[server][message]
     
     # Trigger some actions
-    logging.debug('Trigger some actions')
     if config['mails']:
+        logging.info('MAILING...')
         mail_alert(filtered, config['mails'])
     
     if config['sms_apis']:
+        logging.info('ALERTING BY SMS...')
         sms_alert(filtered, config['sms_apis'])
     #cachet_alert(alerts, ynh_maps, config['cachet_apis'])
 
     #if 'localhost' in alerts:
+    #    logging.info('FILLING CACHET...')
     #    service_up(alerts['localhost'].get('service_up', []))
     logging.debug("===================> %f s" % (start_time - time.time()))
 
@@ -436,12 +439,17 @@ class ServerMonitor(Thread):
         self.failures = {}
 
     def run(self):
-        logging.debug("Run monitoring on %s" % (self.server))
+        logging.info("[%s] CONFIGURING..." % (self.server))
         self.ynh_maps[self.server] = self._load_monitoring_config()
+        logging.info("[%s] MONITORING..." % (self.server))
         self._monitor()
+        logging.info("[%s] COUNTING FAILURES..." % (self.server))
         self._count()
+        logging.info("[%s] ADDING FAILURES REPORTED BY MONITORED SERVER ITSELF..." % (self.server))
         self._add_remote_failures()
+        logging.info("[%s] SAVING FAILURES..." % (self.server))
         self._save()
+        logging.info("[%s] PUBLISHING FAILURES..." % (self.server))
         self._publish()
         
 
@@ -527,7 +535,7 @@ class ServerMonitor(Thread):
                     check_name = "check_%s" % (category)
                     if isinstance(args, str):
                         args = [args]
-                    logging.debug("Run check: %s(%s)" % (check_name, args))
+                    logging.debug("[%s] Running check: %s(%s)" % (self.server, check_name, args))
                     start_time = time.time()
                     if isinstance(args, dict):
                         reports = globals()[check_name](**args)
@@ -536,7 +544,8 @@ class ServerMonitor(Thread):
                 except Exception as e:
                     reports = [('UNKNOWN_ERROR', {'check': category}, {'debug': str(e)})]
                 logging.debug("===> %f s" % (time.time() - start_time))
-                logging.debug(reports)
+                if reports:
+                    logging.warning(reports)
                 for report in reports:
                     if report[0] not in self.failures:
                         self.failures[report[0]] = self.failures.get(report[0], [])
