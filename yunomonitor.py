@@ -1047,7 +1047,7 @@ def check_https_200(url):
                 to_report['UNKNOWN_ERROR'][protocol][addr] = {'debug': str(e)}
             else:
                 if not res.ok:
-                    to_report['HTTP_%d' % r.status_code][protocol][addr] = {}
+                    to_report['HTTP_%d' % res.status_code][protocol][addr] = {}
                 elif sso:
                     to_report['SSO_CAPTURE'][protocol][addr] = {}
             finally:
