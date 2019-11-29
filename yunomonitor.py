@@ -1196,7 +1196,15 @@ def check_spf(smtp_sender, mail_domain):
     errors += check_ip_address(smtp_sender)
     for addrs in cache[smtp_sender].values():
         for addr in addrs.keys():
-            status, message = spf.check2(i=addr, s='root@'+mail_domain, h=mail_domain)
+            try:
+                status, message = spf.check2(i=addr, s='root@'+mail_domain, h=mail_domain)
+            except spf.PermError as e:
+                status = 'permerror'
+                message = str(e)
+            except spf.TempError as e:
+                status = 'temperror'
+                message = str(e)
+
             if status == 'none':
                 errors += [('SPF_MISSING', {'domain': mail_domain}, {})]
                 break
