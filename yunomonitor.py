@@ -1419,20 +1419,26 @@ def check_ynh_upgrade():
 
 def _get_domain_expiration(domain):
     domain = '.'.join(domain.split('.')[-2:])
-    p1 = Popen(['whois', domain], stdout=PIPE)
-    p2 = Popen(['grep', 'Expir'], stdin=p1.stdout, stdout=PIPE)
-    out, err = p2.communicate()
-    out = out.decode("utf-8").split('\n')
-    p1.terminate()
-    p2.terminate()
-    if len(out) >= 1:
-        logging.info("====> %s" % (out[0]))
-        for line in out:
-            match = re.search(r'\d{4}-\d{2}-\d{2}', out[0])
-            if match is not None:
-                return datetime.strptime(match.group(), '%Y-%m-%d')
-    else:
-        return False
+    if domain not in _get_domain_expiration.cache.keys():
+        p1 = Popen(['whois', domain], stdout=PIPE)
+        p2 = Popen(['grep', 'Expir'], stdin=p1.stdout, stdout=PIPE)
+        out, err = p2.communicate()
+        out = out.decode("utf-8").split('\n')
+        p1.terminate()
+        p2.terminate()
+        if len(out) >= 1:
+            logging.info("====> %s" % (out[0]))
+            for line in out:
+                match = re.search(r'\d{4}-\d{2}-\d{2}', out[0])
+                if match is not None:
+                    _get_domain_expiration.cache[domain] = datetime.strptime(match.group(), '%Y-%m-%d')
+                    break
+                    return datetime.strptime(match.group(), '%Y-%m-%d')
+        else:
+            _get_domain_expiration.cache[domain] = False
+    
+    return _get_domain_expiration.cache[domain]
+_get_domain_expiration.cache = {}
 
 def _get_cert_info(hostname, ip=None, port=443):
     if ip is None:
