@@ -1027,6 +1027,7 @@ def check_https_200(url):
                 res = session.send(r, allow_redirects=False)
                 # Remove Host headers to avoid TOO MANY REDIRECTIONS bug
                 del r.headers['Host']
+                sso = False
                 for redirected_res in session.resolve_redirects(res,r):
                     sso |= res.status_code == '302'  and '/yunohost/sso' in res.headers['location']
                     res = redirected_res
