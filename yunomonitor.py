@@ -345,9 +345,6 @@ def main(argv):
     
     levels = ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG']
     if 'logging_level' in config and config['logging_level'] in levels:
-        print(config['logging_level'])
-        print(vars(logging)[config['logging_level']])
-        print(logging.DEBUG)
         logging.basicConfig(level=vars(logging)[config['logging_level']])
 
     logging.debug("Config: %s" % (config))
@@ -1021,7 +1018,7 @@ def check_https_200(url):
                 res = session.send(r, allow_redirects=False)
                 # Remove Host headers to avoid TOO MANY REDIRECTIONS bug
                 del r.headers['Host']
-                for redirected_res in s.resolve_redirects(res,r):
+                for redirected_res in session.resolve_redirects(res,r):
                     sso |= res.status_code == '302'  and '/yunohost/sso' in res.headers['location']
                     res = redirected_res
             
