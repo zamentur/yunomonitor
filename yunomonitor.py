@@ -889,7 +889,8 @@ def check_ip_address(domain):
         except socket.gaierror:
             pass
         
-        if '127.0.0.1' in cache[domain]['v4'].keys() or '::1' in cache[domain]['v6'].keys():
+        if '127.0.0.1' in cache[domain]['v4'].keys() or '::1' in cache[domain]['v6'].keys()
+            or any(ipv6.startswith('fe80') for ipv6 in cache[domain]['v6'].keys()):
             my_resolver = dns.resolver.Resolver()
             my_resolver.nameservers = [get_local_dns_resolver()]
             my_resolver.timeout = 10
