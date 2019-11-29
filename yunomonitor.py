@@ -1426,6 +1426,7 @@ def _get_domain_expiration(domain):
     p1.terminate()
     p2.terminate()
     if len(out) >= 1:
+        logging.info("====> %s" % (out[0]))
         match = re.search(r'\d{4}-\d{2}-\d{2}', out[0])
         return datetime.strptime(match.group(), '%Y-%m-%d')
     else:
