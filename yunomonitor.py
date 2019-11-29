@@ -853,7 +853,7 @@ def run_on_monitored_server(func):
 
 # Remote checks
 def check_ping(hostname, proto=['v4', 'v6']):
-    cmd = "ping -%s -c 1 -w 500 %s >/dev/null 2>&1"
+    cmd = "timeout 4 ping -%s -c 1 -w 500 %s >/dev/null 2>&1"
     errors = []
     ip = {'v4': IP['v4'], 'v6': IP['v6']}
     for protocol in proto:
