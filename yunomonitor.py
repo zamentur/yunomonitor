@@ -1175,7 +1175,7 @@ def check_smtp(hostname, ports=[25], blacklist=True):
     
     # Do check for all ips of all MX, check only reception capabilities
     mx_domains = {mx.preference: mx.exchange.to_text(True) 
-                  for mx in dns.resolver.query(hostname, 'MX')}
+                  for mx in dns.resolver.query(hostname, 'MX', raise_on_no_answer=False)}
     mx_domains = [mx_domains[key] for key in sorted(mx_domains)]
     
     if not mx_domains:
