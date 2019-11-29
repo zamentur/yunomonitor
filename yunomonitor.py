@@ -520,16 +520,14 @@ class ServerMonitor(Thread):
         
         # Remove checks that run on another machine
         if self.server == 'localhost':
-            checks = ['ping', 'domain_renewal', 'https_200', 'dns_resolver', 'smtp', 'imap', 'xmpp']
-        else:
             checks = ['dns_resolution', 'service_up', 'backuped', 'disk_health', 'free_space']
-
-        for check in checks:
-            if check in to_monitor:
-                del to_monitor[check]
+        else:
+            checks = ['ping', 'domain_renewal', 'https_200', 'dns_resolver', 'smtp', 'imap', 'xmpp']
+        
+        to_monitor = [(check, to_monitor[check]) for check in checks if check in to_monitor]
 
         # Check things to monitor
-        for category, checks in to_monitor.items():
+        for category, checks in to_monitor:
             for args in checks:
                 try:
                     check_name = "check_%s" % (category)
