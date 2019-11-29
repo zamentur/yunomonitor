@@ -1196,7 +1196,7 @@ def check_spf(smtp_sender, mail_domain):
     errors += check_ip_address(smtp_sender)
     for addrs in cache[smtp_sender].values():
         for addr in addrs.keys():
-            status, message = spf.check2(i=addrs, s='org@'+mail_domain, h='grimaud.me')
+            status, message = spf.check2(i=addr, s='root@'+mail_domain, h=mail_domain)
             if status == 'none':
                 errors += [('SPF_MISSING', {'domain': mail_domain}, {})]
                 break
