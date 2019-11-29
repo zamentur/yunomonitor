@@ -1426,16 +1426,12 @@ def _get_domain_expiration(domain):
         out = out.decode("utf-8").split('\n')
         p1.terminate()
         p2.terminate()
-        if len(out) >= 1:
-            logging.info("====> %s" % (out[0]))
-            for line in out:
-                match = re.search(r'\d{4}-\d{2}-\d{2}', out[0])
-                if match is not None:
-                    _get_domain_expiration.cache[domain] = datetime.strptime(match.group(), '%Y-%m-%d')
-                    break
-                    return datetime.strptime(match.group(), '%Y-%m-%d')
-        else:
-            _get_domain_expiration.cache[domain] = False
+        _get_domain_expiration.cache[domain] = False
+        for line in out:
+            match = re.search(r'\d{4}-\d{2}-\d{2}', out[0])
+            if match is not None:
+                _get_domain_expiration.cache[domain] = datetime.strptime(match.group(), '%Y-%m-%d')
+                break
     
     return _get_domain_expiration.cache[domain]
 _get_domain_expiration.cache = {}
