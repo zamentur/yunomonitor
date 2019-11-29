@@ -1175,7 +1175,7 @@ def check_smtp(hostname, ports=[25], blacklist=True):
     
     for mx_domain in mx_domains:
         for port in ports:
-            errors += check_one_smtp_hostname(mx_domain, port, receiver_only=True):
+            errors += check_one_smtp_hostname(mx_domain, port, receiver_only=True)
     
     return errors
 
@@ -1217,7 +1217,7 @@ def check_smtp_sender(hostname, ports=[25], blacklist=True):
     check_spf(hostname, hostname)
 
     for port in ports:
-        errors += check_one_smtp_hostname(hostname, port):
+        errors += check_one_smtp_hostname(hostname, port)
     
     return errors
 
