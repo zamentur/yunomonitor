@@ -545,6 +545,7 @@ class ServerMonitor(Thread):
                     reports = [('UNKNOWN_ERROR', {'check': category}, {'debug': str(e)})]
                 logging.debug("===> %f s" % (time.time() - start_time))
                 if reports:
+                    logging.warning("[%s] Check: %s(%s)" % (self.server, check_name, args))
                     logging.warning(reports)
                 for report in reports:
                     if report[0] not in self.failures:
