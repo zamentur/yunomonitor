@@ -347,6 +347,7 @@ def main(argv):
     if 'logging_level' in config and config['logging_level'] in levels:
         print(config['logging_level'])
         print(vars(logging)[config['logging_level']])
+        print(logging.DEBUG)
         logging.basicConfig(level=vars(logging)[config['logging_level']])
 
     logging.debug("Config: %s" % (config))
