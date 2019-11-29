@@ -1333,6 +1333,8 @@ def check_free_space(warning=1500, error=600, critical=200, paths=None):
 
 @run_on_monitored_server
 def check_backuped(app, backup_app):
+    # Disable this check
+    return []
     # TODO protect passphrase
     if 'borg' in backup_app:
         param = yaml.load(open('/etc/yunohost/apps/%s/settings.yml' % backup_app))
