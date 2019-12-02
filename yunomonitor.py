@@ -522,7 +522,7 @@ class ServerMonitor(Thread):
         if self.server == 'localhost':
             checks = ['dns_resolution', 'service_up', 'backuped', 'disk_health', 'free_space']
         else:
-            checks = ['ping', 'domain_renewal', 'https_200', 'dns_resolver', 'smtp', 'imap', 'xmpp']
+            checks = ['ping', 'dns_resolver', 'domain_renewal', 'https_200', 'smtp', 'smtp_sender', 'imap', 'xmpp']
         
         to_monitor = [(check, to_monitor[check]) for check in checks if check in to_monitor]
 
@@ -851,26 +851,32 @@ def run_on_monitored_server(func):
         return func(*args, **kwargs)
     return wrapper
 
+cache = {}
+
 # Remote checks
 def check_ping(hostname, proto=['v4', 'v6']):
     cmd = "timeout 4 ping -%s -c 1 -w 500 %s >/dev/null 2>&1"
     errors = []
-    ip = {'v4': IP['v4'], 'v6': IP['v6']}
+    ip = {'v4': None, 'v6': None}
+    if hostname in check_ping.cache:
+        ip = check_ping.cache[hostname]
+
     for protocol in proto:
-        if IP[protocol]:
+        if IP[protocol] and ip[protocol] is not None:
             ip[protocol] = any(os.system(cmd % (protocol[1:], hostname)) == 0 for retry in range(3))
     
+    check_ping.cache[hostname] = ip
+
     target = {'domain': hostname}
-    if not ip['v4']  and not ip['v6'] and IP['v4'] and IP['v6']:
+    if ip['v4'] == False and ip['v6'] == False and IP['v4'] and IP['v6']:
         errors.append(('NO_PING', target))
-    elif not ip['v4'] and IP['v4']:
+    elif ip['v4'] == False and IP['v4']:
         errors.append(('NO_IPV4_PING', target))
-    elif not ip['v6'] and IP['v6']:
+    elif ip['v6'] == False and IP['v6']:
         errors.append(('NO_IPV6_PING', target))
 
     return errors
-
-cache = {}
+check_ping.cache = {}
 
 @need_connection
 def check_ip_address(domain):
@@ -915,6 +921,7 @@ def check_ip_address(domain):
     return []
 @need_connection
 def check_tls(domain, port=443):
+    global cache
     errors = check_ip_address(domain)
 
     to_report = {
@@ -923,7 +930,7 @@ def check_tls(domain, port=443):
         'PORT_CLOSED_OR_SERVICE_DOWN': {'v4':{}, 'v6': {}},
     }
     for protocol, addrs in cache[domain].items():
-        if not IP[protocol] or not addrs:
+        if not IP[protocol] or not addrs or check_ping(domain, protocol) != []:
             continue
         
         # Try to do the request for each ips
@@ -946,6 +953,7 @@ def check_tls(domain, port=443):
                 ports[443] = 'notworking'
             except Exception as e:
                 pass
+    
     errors += _aggregate_report_by_target(to_report, domain,
                                           {'domain': domain, 'port': port})
     return errors
@@ -967,6 +975,7 @@ class MySSLContext(ssl.SSLContext):
 
 @need_connection
 def check_https_200(url):
+    global cache
     # Find all ips configured for the domain of the URL
     split_uri = url.split('/')
     domain_port = split_uri[0].split(':')
@@ -991,7 +1000,7 @@ def check_https_200(url):
         return []
     
     for protocol, addrs in cache[domain].items():
-        if not IP[protocol] or not addrs:
+        if not IP[protocol] or not addrs or check_ping(domain, protocol) != []:
             continue
         
         # Try to do the request for each ips
@@ -1121,13 +1130,14 @@ def check_blacklisted(addr, hostname):
     return errors
 
 def check_one_smtp_hostname(hostname, port, receiver_only=False):
+    global cache
     errors = []
     to_report = {msg: {'v4':{}, 'v6': {}} for msg in [
         'CERT_RENEWAL_FAILED',
         'PORT_CLOSED_OR_SERVICE_DOWN'
     ]}
     for protocol, addrs in cache[hostname].items():
-        if not IP[protocol] or not addrs:
+        if not IP[protocol] or not addrs or check_ping(domain, protocol) != []:
             continue
     
         # Try to do the request for each ips
