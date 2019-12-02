@@ -930,7 +930,7 @@ def check_tls(domain, port=443):
         'PORT_CLOSED_OR_SERVICE_DOWN': {'v4':{}, 'v6': {}},
     }
     for protocol, addrs in cache[domain].items():
-        if not IP[protocol] or not addrs or check_ping(domain, protocol) != []:
+        if not IP[protocol] or not addrs or check_ping(domain, [protocol]) != []:
             continue
         
         # Try to do the request for each ips
@@ -1000,7 +1000,7 @@ def check_https_200(url):
         return []
     
     for protocol, addrs in cache[domain].items():
-        if not IP[protocol] or not addrs or check_ping(domain, protocol) != []:
+        if not IP[protocol] or not addrs or check_ping(domain, [protocol]) != []:
             continue
         
         # Try to do the request for each ips
@@ -1137,7 +1137,7 @@ def check_one_smtp_hostname(hostname, port, receiver_only=False):
         'PORT_CLOSED_OR_SERVICE_DOWN'
     ]}
     for protocol, addrs in cache[hostname].items():
-        if not IP[protocol] or not addrs or check_ping(domain, protocol) != []:
+        if not IP[protocol] or not addrs or check_ping(domain, [protocol]) != []:
             continue
     
         # Try to do the request for each ips
