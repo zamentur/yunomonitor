@@ -353,11 +353,13 @@ def main(argv):
     IP.v4 = not check_ping("wikipedia.org", ['v4'])
     IP.v6 = socket.has_ipv6 and not check_ping("wikipedia.org", ['v6'])
     if not IP.v4 and not IP.v6:
-        logging.debug('No connection')
+        logging.debug('NO CONNECTION')
         if 'localhost' not in config['monitored_servers']:
             sys.exit(2)
-        logging.debug('only local test will run')
+        logging.warning('ONLY LOCAL TEST WILL BE RUN')
         config['monitored_servers'] = set(['localhost'])
+    elif  not IP.v6:
+        logging.info('NO IPV6 ON THIS MONITORING SERVER')
 
     # Create well-known dir
     try:
