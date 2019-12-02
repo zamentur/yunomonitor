@@ -273,7 +273,7 @@ except:
 # =============================================================================
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.ERROR)
 # =============================================================================
 
 # =============================================================================
@@ -1505,7 +1505,7 @@ def _reset_cache():
 # ACTIONS PLUGINS
 # =============================================================================
 
-def is_ignored(alert_method, level, server, message, target):
+def is_ignored(method, level, server, message, target):
     if is_ignored.cache is None:
         try:
             with open(IGNORE_ALERT_CSV, newline='') as csvfile:
@@ -1514,10 +1514,10 @@ def is_ignored(alert_method, level, server, message, target):
         except:
             is_ignored.cache = []
 
-    logging.warning("-> %s %s %s" % (server, message, target))
+    logging.debug("-> %s %s %s" % (server, message, target))
     for inst in is_ignored.cache:
-        logging.warning("%s %s %s" % (inst['server'], inst['message'], inst['target']))
-        if (inst['alert_method'] == '*' or inst['alert_method'] == alert_method) \
+        logging.debug("%s %s %s" % (inst['server'], inst['message'], inst['target']))
+        if (inst['method'] == '*' or inst['method'] == method) \
            and (inst['level'] == '*' or inst['level'] == level) \
            and (inst['server'] == '*' or inst['server'] == server) \
            and (inst['message'] == '*' or inst['message'] == message) \
@@ -1539,7 +1539,7 @@ def mail_alert(alerts, mails):
         for message, reports in failures.items():
             for report in reports:
                 if is_ignored('mail', report['level'], server, message, report['target']):
-                    logging.warning("Ignore %s %s %s %s %s" % ('mail_alert', report['level'], server, message, report['target']))
+                    logging.info("Ignore %s %s %s %s %s" % ('mail', report['level'], server, message, report['target']))
                     continue
                 info = {**report['target'], **report['extra']}
                 context = {
