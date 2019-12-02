@@ -403,8 +403,7 @@ def main(argv):
             for report in reports:
                 logging.debug(report)
                 logging.debug("first: %d freq: %d" %(first, freq))
-                if (report['count'] - first) % freq == 0 \
-                   and not is_ignored(server, message, report):
+                if (report['count'] - first) % freq == 0:
                     report['level'] = MONITORING_ERRORS[message]['level']
                     filtered[server][message].append(report)
             if not filtered[server][message]:
@@ -1506,7 +1505,7 @@ def _reset_cache():
 # ACTIONS PLUGINS
 # =============================================================================
 
-def is_ignored(server, message, report):
+def is_ignored(alert_method, level, server, message, target):
     if is_ignored.cache is None:
         try:
             with open(IGNORE_ALERT_CSV, newline='') as csvfile:
@@ -1516,10 +1515,11 @@ def is_ignored(server, message, report):
             is_ignored.cache = []
 
     for inst in is_ignored.cache:
-        if (inst['level'] == '*' or inst['level'] == report['level']) \
+        if (inst['alert_method'] == '*' or inst['alert_method'] == alert_method) \
+           and (inst['level'] == '*' or inst['level'] == level) \
            and (inst['server'] == '*' or inst['server'] == server) \
            and (inst['message'] == '*' or inst['message'] == message) \
-           and (inst['target'] == '*' or set(inst['target'].split(',')) == set(report['target'].values())):
+           and (inst['target'] == '*' or set(inst['target'].split(',')) == set(target.values())):
             return True
 
     
@@ -1536,6 +1536,9 @@ def mail_alert(alerts, mails):
     for server, failures in alerts.items():
         for message, reports in failures.items():
             for report in reports:
+                if is_ignored('mail_alert', report['level'], server, message, report['target']):
+                    logging.debug("Ignore %s %s %s %s %s" % ('mail_alert', report['level'], server, message, report['target']))
+                    continue
                 info = {**report['target'], **report['extra']}
                 context = {
                     'server': server, 
