@@ -1137,7 +1137,7 @@ def check_one_smtp_hostname(hostname, port, receiver_only=False):
         'PORT_CLOSED_OR_SERVICE_DOWN'
     ]}
     for protocol, addrs in cache[hostname].items():
-        if not IP[protocol] or not addrs or check_ping(domain, [protocol]) != []:
+        if not IP[protocol] or not addrs or check_ping(hostname, [protocol]) != []:
             continue
     
         # Try to do the request for each ips
