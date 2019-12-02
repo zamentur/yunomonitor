@@ -26,6 +26,7 @@ import requests
 from subprocess import Popen, PIPE
 import json
 import yaml
+import csv
 import smtplib
 import logging
 import glob
@@ -220,6 +221,7 @@ ping:
             - some.domain.tld no ipv4 ping
 """
 CONFIG_DIR = os.path.join(WORKING_DIR, "conf/")
+IGNORE_ALERT_CSV = os.path.join(CONFIG_DIR, "ignore_alert.csv")
 MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "%s.yml")
 CACHE_MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "%s.cache.yml")
 FAILURES_FILE = os.path.join(CONFIG_DIR, "%s.failures.yml")
@@ -386,8 +388,8 @@ def main(argv):
         thread.join()
         alerts[thread.server]=thread.failures
 
-    # Filter by reccurence
-    logging.info('FILTERING BY FREQUENCIES...')
+    # Filter by reccurence or ignored status
+    logging.info('FILTERING...')
     filtered = {}
     for server, failures in alerts.items():
         filtered[server] = {}
@@ -401,7 +403,8 @@ def main(argv):
             for report in reports:
                 logging.debug(report)
                 logging.debug("first: %d freq: %d" %(first, freq))
-                if (report['count'] - first) % freq == 0:
+                if (report['count'] - first) % freq == 0 \
+                   and not is_ignored(server, message, report):
                     report['level'] = MONITORING_ERRORS[message]['level']
                     filtered[server][message].append(report)
             if not filtered[server][message]:
@@ -1503,6 +1506,25 @@ def _reset_cache():
 # ACTIONS PLUGINS
 # =============================================================================
 
+def is_ignored(server, message, report):
+    if is_ignored.cache is None:
+        try:
+            with open(IGNORE_ALERT_CSV, newline='') as csvfile:
+                ignore_csv = csv.DictReader(csvfile, delimiter=' ')
+                is_ignored.cache = [ignore_instruction for ignore_instruction in ignore_csv]
+        except:
+            is_ignored.cache = []
+
+    for inst in is_ignored.cache:
+        if (inst['level'] == '*' or inst['level'] == report['level']) \
+           and (inst['server'] == '*' or inst['server'] == server) \
+           and (inst['message'] == '*' or inst['message'] == message) \
+           and (inst['target'] == '*' or set(inst['target'].split(',')) == set(report['target'].values())):
+            return True
+
+    
+    return False
+is_ignored.cache = None
 
 def service_up(alerts):
     # TODO service up
