@@ -1514,7 +1514,9 @@ def is_ignored(alert_method, level, server, message, target):
         except:
             is_ignored.cache = []
 
+    logging.warning("-> %s %s %s" % (server, message, target))
     for inst in is_ignored.cache:
+        logging.warning("%s %s %s" % (inst['server'], inst['message'], inst['target']))
         if (inst['alert_method'] == '*' or inst['alert_method'] == alert_method) \
            and (inst['level'] == '*' or inst['level'] == level) \
            and (inst['server'] == '*' or inst['server'] == server) \
@@ -1536,7 +1538,7 @@ def mail_alert(alerts, mails):
     for server, failures in alerts.items():
         for message, reports in failures.items():
             for report in reports:
-                if is_ignored('mail_alert', report['level'], server, message, report['target']):
+                if is_ignored('mail', report['level'], server, message, report['target']):
                     logging.warning("Ignore %s %s %s %s %s" % ('mail_alert', report['level'], server, message, report['target']))
                     continue
                 info = {**report['target'], **report['extra']}
