@@ -1537,7 +1537,7 @@ def mail_alert(alerts, mails):
         for message, reports in failures.items():
             for report in reports:
                 if is_ignored('mail_alert', report['level'], server, message, report['target']):
-                    logging.debug("Ignore %s %s %s %s %s" % ('mail_alert', report['level'], server, message, report['target']))
+                    logging.warning("Ignore %s %s %s %s %s" % ('mail_alert', report['level'], server, message, report['target']))
                     continue
                 info = {**report['target'], **report['extra']}
                 context = {
