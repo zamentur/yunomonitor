@@ -864,7 +864,7 @@ def check_ping(hostname, proto=['v4', 'v6']):
         ip = check_ping.cache[hostname]
 
     for protocol in proto:
-        if IP[protocol] and ip[protocol] is not None:
+        if IP[protocol] and ip[protocol] is None:
             ip[protocol] = any(os.system(cmd % (protocol[1:], hostname)) == 0 for retry in range(3))
     
     check_ping.cache[hostname] = ip
