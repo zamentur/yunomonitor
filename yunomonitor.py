@@ -730,7 +730,7 @@ def generate_monitoring_config():
                 "id": "misc",
                 "name": "Base",
                 "label": "Système de base",
-                "services": ["avahi-daemon", "cron", "dbus", "glances",
+                "services": ["avahi-daemon", "cron", "dbus",
                              "haveged", "ntp", "rsyslog", "syslog", 
                              "systemd-journald", "systemd-udevd"]
             }
