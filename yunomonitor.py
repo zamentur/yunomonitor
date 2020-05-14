@@ -896,28 +896,12 @@ def check_ip_address(domain):
     if domain not in cache:
         # Find all ips configured for the domain of the URL
         cache[domain] = {'v4': {}, 'v6': {}}
-        try:
-            addrs = socket.getaddrinfo(domain, None)
-            cache[domain]['v4'] = {addr[4][0]: {}
-                                for addr in addrs if addr[0] == socket.AF_INET}
-            cache[domain]['v6'] = {addr[4][0]: {}
-                                for addr in addrs if addr[0] == socket.AF_INET6}
-        except socket.gaierror:
-            pass
-        
-        if '127.0.0.1' in cache[domain]['v4'].keys() or '::1' in cache[domain]['v6'].keys() \
-            or any(ipv6.startswith('fe80') for ipv6 in cache[domain]['v6'].keys()):
-            my_resolver = dns.resolver.Resolver()
-            my_resolver.nameservers = [get_local_dns_resolver()]
-            my_resolver.timeout = 10
-    
-            try:
-                cache[domain]['v4'] = {addr.to_text(): {}
-                                for addr in my_resolver.query(domain, 'A')}
-                cache[domain]['v6'] = {addr.to_text(): {}
-                                for addr in my_resolver.query(domain, 'AAAA')}
-            except Exception as e:
-                pass
+        status, answers = dig(domain, 'A', resolvers="force_external")
+        if status == "ok":
+            cache[domain]['v4'] = {addr:{} for addr in answers}
+        status, answers = dig(domain, 'AAAA', resolvers="force_external")
+        if status == "ok":
+            cache[domain]['v6'] = {addr:{} for addr in answers}
 
     addrs = cache[domain]
     if not addrs['v4'] and not addrs['v6']:
@@ -1164,14 +1148,25 @@ def check_one_smtp_hostname(hostname, port, receiver_only=False):
                 server = smtplib.SMTP(addr, port, timeout=10) 
                 ehlo = server.ehlo()
                 if not receiver_only:
-                    try:
-                        ehlo_domain = ehlo[1].decode("utf-8").split("\n")[0]
-                        name, _, _ = socket.gethostbyaddr(addr)
-                    except socket.herror as e:
-                        errors.append(('REVERSE_MISSING', {'domain': hostname, 'ip': addr}, {'ehlo_domain': ehlo_domain}))
+                    ehlo_domain = ehlo[1].decode("utf-8").split("\n")[0]
+
+                    rev = dns.reversename.from_address(addr)
+                    subdomain = str(rev.split(3)[0])
+                    query = subdomain
+                    if "." in addr:
+                        query += '.in-addr.arpa'
                     else:
-                        if name != ehlo_domain:
-                            errors.append(('REVERSE_MISMATCH', {'domain': hostname, 'ip': addr}, {'reverse_dns': name, 'ehlo_domain': ehlo_domain}))
+                        query += '.ip6.arpa'
+
+                    # Do the DNS Query
+                    status, value = dig(query, 'PTR')
+                    rdns_domain = ''
+                    if status == "ok" and len(value) > 0:
+                        rdns_domain = value[0][:-1] if value[0].endswith('.') else value[0]
+                        if rdns_domain != ehlo_domain:
+                            errors.append(('REVERSE_MISMATCH', {'domain': hostname, 'ip': addr}, {'reverse_dns': rdns_domain, 'ehlo_domain': ehlo_domain}))
+                    else:
+                        errors.append(('REVERSE_MISSING', {'domain': hostname, 'ip': addr}, {'ehlo_domain': ehlo_domain}))
         
                 server.starttls()
 
@@ -1510,6 +1505,41 @@ def _aggregate_report_by_target(to_report, domain, base_target):
 def _reset_cache():
     global cache
     cache = {}
+
+def dig(qname, rdtype="A", timeout=5, resolvers="local", edns_size=1500, full_answers=False):
+    """
+    Do a quick DNS request and avoid the "search" trap inside /etc/resolv.conf
+    """
+
+    # It's very important to do the request with a qname ended by .
+    # If we don't and the domain fail, dns resolver try a second request
+    # by concatenate the qname with the end of the "hostname"
+    if not qname.endswith("."):
+        qname += "."
+
+    if resolvers == "local":
+        resolvers = ["127.0.0.1"]
+    elif resolvers == "force_external":
+        resolvers = get_local_dns_resolver()
+    else:
+        assert isinstance(resolvers, list)
+
+    resolver = dns.resolver.Resolver(configure=False)
+    resolver.use_edns(0, 0, edns_size)
+    resolver.nameservers = resolvers
+    resolver.timeout = timeout
+    try:
+        answers = resolver.query(qname, rdtype)
+    except (dns.resolver.NXDOMAIN,
+            dns.resolver.NoNameservers,
+            dns.resolver.NoAnswer,
+            dns.exception.Timeout) as e:
+        return ("nok", (e.__class__.__name__, e))
+
+    if not full_answers:
+        answers = [answer.to_text() for answer in answers]
+
+    return ("ok", answers)
 
 # =============================================================================
 # ACTIONS PLUGINS
