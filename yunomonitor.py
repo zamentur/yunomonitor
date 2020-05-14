@@ -273,7 +273,7 @@ except:
 # =============================================================================
 
 
-logging.basicConfig(level=logging.INFO)
+#logging.basicConfig(level=logging.WARNING)
 # =============================================================================
 
 # =============================================================================
@@ -345,9 +345,15 @@ def main(argv):
     if config['monitored_servers'] == set():
         config['monitored_servers'] = ['localhost']
     
-    levels = ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG']
-    if 'logging_level' in config and config['logging_level'] in levels:
-        logging.basicConfig(level=vars(logging)[config['logging_level']])
+    levels = {
+        'CRITICAL': logging.CRITICAL, 
+        'ERROR': logging.ERROR, 
+        'WARNING': logging.WARNING, 
+        'INFO':logging.INFO, 
+        'DEBUG':logging.DEBUG
+    }
+    if config.get('logging_level', 'WARNING') in levels.keys():
+        logging.basicConfig(level=levels[config.get('logging_level', 'WARNING')])
 
     logging.debug("Config: %s" % (config))
 
@@ -1580,6 +1586,9 @@ def sms_alert(alerts, sms_apis):
                         logging.info("Ignore %s %s %s %s %s" % ('mail', report['level'], server, message, report['target']))
                         continue
                     body.append('- ' + ', '.join([str(x) for x in report['target'].values()]))
+                if not body[-1].startswith('- '):
+                    del body[-1]
+        
         for message, reports in failures.items():
             if MONITORING_ERRORS[message]['level'] == 'error':
                 body.append(message)
@@ -1588,8 +1597,10 @@ def sms_alert(alerts, sms_apis):
                         logging.info("Ignore %s %s %s %s %s" % ('mail', report['level'], server, message, report['target']))
                         continue
                     body.append('- ' + ', '.join([str(x) for x in report['target'].values()]))
+                if not body[-1].startswith('- '):
+                    del body[-1]
         if body[-1].startswith('['):
-            del record[-1]
+            del body[-1]
     if len(body) > 0:
         body = "\n".join(body)
         body = urllib.parse.quote(body, safe='')
