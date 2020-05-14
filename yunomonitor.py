@@ -273,7 +273,7 @@ except:
 # =============================================================================
 
 
-logging.basicConfig(level=logging.ERROR)
+logging.basicConfig(level=logging.INFO)
 # =============================================================================
 
 # =============================================================================
@@ -395,6 +395,7 @@ def main(argv):
         filtered[server] = {}
         for message, reports in failures.items():
             if not message in MONITORING_ERRORS:
+                logging.error("ERROR MESSAGE MISSING %s" %(message))
                 message = 'UNKNOWN_ERROR'
             first = MONITORING_ERRORS[message]['first']
             freq = round(MONITORING_ERRORS[message]['minutes'] / CRON_FREQUENCY)
@@ -453,8 +454,9 @@ class ServerMonitor(Thread):
         self._add_remote_failures()
         logging.info("[%s] SAVING FAILURES..." % (self.server))
         self._save()
-        logging.info("[%s] PUBLISHING FAILURES..." % (self.server))
-        self._publish()
+        if self.server == "localhost":
+            logging.info("[%s] PUBLISHING FAILURES..." % (self.server))
+            self._publish()
         
 
     def _load_monitoring_config(self):
@@ -1035,7 +1037,9 @@ def check_https_200(url):
                 session.mount('https://' + addr + path, adapter)
                
                 req = requests.Request('GET', "https://" + addr + path,
-                                       headers={'Host': domain})
+                                       headers={'Host': domain,
+                                                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                                                'User-Agent': 'YunoMonitor'})
                 r = req.prepare()
                 res = session.send(r, allow_redirects=False)
                 # Remove Host headers to avoid TOO MANY REDIRECTIONS bug
