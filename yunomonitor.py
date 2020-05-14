@@ -1576,13 +1576,21 @@ def sms_alert(alerts, sms_apis):
             if MONITORING_ERRORS[message]['level'] == 'critical':
                 body.append(message)
                 for report in reports:
+                    if is_ignored('sms', report['level'], server, message, report['target']):
+                        logging.info("Ignore %s %s %s %s %s" % ('mail', report['level'], server, message, report['target']))
+                        continue
                     body.append('- ' + ', '.join([str(x) for x in report['target'].values()]))
         for message, reports in failures.items():
             if MONITORING_ERRORS[message]['level'] == 'error':
                 body.append(message)
                 for report in reports:
+                    if is_ignored('sms', report['level'], server, message, report['target']):
+                        logging.info("Ignore %s %s %s %s %s" % ('mail', report['level'], server, message, report['target']))
+                        continue
                     body.append('- ' + ', '.join([str(x) for x in report['target'].values()]))
-    if len(body) > 1:
+        if body[-1].startswith('['):
+            del record[-1]
+    if len(body) > 0:
         body = "\n".join(body)
         body = urllib.parse.quote(body, safe='')
         for sms_api in sms_apis:
