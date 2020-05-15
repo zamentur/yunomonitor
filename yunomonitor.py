@@ -197,6 +197,9 @@ MONITORING_ERRORS = {
     'UNKNOWN_ERROR': {'level': 'error', 'first': 3, 'minutes': 30, 
                 'user': "",
                 'admin': "Une erreur non gérée par le système de monitoring est survenue"},
+    'HTTP_UNKNOWN_ERROR': {'level': 'error', 'first': 3, 'minutes': 30, 
+                'user': "",
+                'admin': "Une erreur HTTP est survenue"},
 }
 
 # Trigger actions every 8*3 minutes of failures
@@ -222,6 +225,7 @@ ping:
 """
 CONFIG_DIR = os.path.join(WORKING_DIR, "conf/")
 IGNORE_ALERT_CSV = os.path.join(CONFIG_DIR, "ignore_alert.csv")
+DAILY_IGNORE_ALERT_CSV = os.path.join(CONFIG_DIR, "daily_ignore_alert.csv")
 MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "%s.yml")
 CACHE_MONITORING_CONFIG_FILE = os.path.join(CONFIG_DIR, "%s.cache.yml")
 FAILURES_FILE = os.path.join(CONFIG_DIR, "%s.failures.yml")
@@ -273,7 +277,7 @@ except:
 # =============================================================================
 
 
-#logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.WARNING)
 # =============================================================================
 
 # =============================================================================
@@ -349,12 +353,10 @@ def main(argv):
         'CRITICAL': logging.CRITICAL, 
         'ERROR': logging.ERROR, 
         'WARNING': logging.WARNING, 
-        'INFO':logging.INFO, 
-        'DEBUG':logging.DEBUG
+        'INFO': logging.INFO, 
+        'DEBUG': logging.DEBUG
     }
-    if config.get('logging_level', 'WARNING') in levels.keys():
-        logging.basicConfig(level=levels[config.get('logging_level', 'WARNING')])
-
+    logging.getLogger().setLevel(levels[config.get('logging_level', 'WARNING')])
     logging.debug("Config: %s" % (config))
 
     # If we are offline in IPv4 and IPv6 execute only local checks
@@ -402,7 +404,7 @@ def main(argv):
         for message, reports in failures.items():
             if not message in MONITORING_ERRORS:
                 logging.error("ERROR MESSAGE MISSING %s" %(message))
-                message = 'UNKNOWN_ERROR'
+                MONITORING_ERRORS[message] = MONITORING_ERRORS['UNKNOWN_ERROR']
             first = MONITORING_ERRORS[message]['first']
             freq = round(MONITORING_ERRORS[message]['minutes'] / CRON_FREQUENCY)
             filtered[server][message] = []
@@ -509,7 +511,7 @@ class ServerMonitor(Thread):
                     config = yaml.load(decrypt(r.content))
                     assert not isinstance(config, str), "Misformed downloaded configuration"
                 except Exception as e:
-                    logging.warning('Unable to download autoconfiguration file, the old one will be used')
+                    logging.warning('Unable to download autoconfiguration file of %s, the old one will be used' % (self.server))
                     try:
                         with open(cache_config, 'r') as cache_config_file:
                             cconfig = yaml.load(cache_config_file)
@@ -555,7 +557,7 @@ class ServerMonitor(Thread):
                     reports = [('UNKNOWN_ERROR', {'check': category}, {'debug': str(e)})]
                 logging.debug("===> %f s" % (time.time() - start_time))
                 if reports:
-                    logging.warning("[%s] Check: %s(%s)" % (self.server, check_name, args))
+                    logging.info("[%s] Check: %s(%s)" % (self.server, check_name, args))
                     logging.warning(reports)
                 for report in reports:
                     if report[0] not in self.failures:
@@ -1159,7 +1161,7 @@ def check_one_smtp_hostname(hostname, port, receiver_only=False):
                         query += '.ip6.arpa'
 
                     # Do the DNS Query
-                    status, value = dig(query, 'PTR')
+                    status, value = dig(query, 'PTR', resolvers="force_external")
                     rdns_domain = ''
                     if status == "ok" and len(value) > 0:
                         rdns_domain = value[0][:-1] if value[0].endswith('.') else value[0]
@@ -1524,22 +1526,27 @@ def dig(qname, rdtype="A", timeout=5, resolvers="local", edns_size=1500, full_an
     else:
         assert isinstance(resolvers, list)
 
-    resolver = dns.resolver.Resolver(configure=False)
-    resolver.use_edns(0, 0, edns_size)
-    resolver.nameservers = resolvers
-    resolver.timeout = timeout
-    try:
-        answers = resolver.query(qname, rdtype)
-    except (dns.resolver.NXDOMAIN,
-            dns.resolver.NoNameservers,
-            dns.resolver.NoAnswer,
-            dns.exception.Timeout) as e:
-        return ("nok", (e.__class__.__name__, e))
+    cache_key = "%s %s %s" % (rdtype, qname, resolvers[0])
+    if not dig.cache.get(cache_key, False):
+        resolver = dns.resolver.Resolver(configure=False)
+        resolver.use_edns(0, 0, edns_size)
+        resolver.nameservers = resolvers
+        resolver.timeout = timeout
+        try:
+            answers = resolver.query(qname, rdtype)
+        except (dns.resolver.NXDOMAIN,
+                dns.resolver.NoNameservers,
+                dns.resolver.NoAnswer,
+                dns.exception.Timeout) as e:
+            dig.cache[cache_key] = ("nok", (e.__class__.__name__, e))
+            return dig.cache[cache_key]
 
-    if not full_answers:
-        answers = [answer.to_text() for answer in answers]
+        if not full_answers:
+            answers = [answer.to_text() for answer in answers]
 
-    return ("ok", answers)
+        dig.cache[cache_key] = ("ok", answers)
+    return dig.cache[cache_key]
+dig.cache = {}
 
 # =============================================================================
 # ACTIONS PLUGINS
@@ -1556,12 +1563,13 @@ def is_ignored(method, level, server, message, target):
 
     logging.debug("-> %s %s %s" % (server, message, target))
     for inst in is_ignored.cache:
-        logging.debug("%s %s %s" % (inst['server'], inst['message'], inst['target']))
+        diff_target = set(inst['target'].split(',')) - set(target.values())
         if (inst['method'] == '*' or inst['method'] == method) \
+           and (inst['until'] == '*' or datetime.strptime(inst['until'], '%Y-%m-%d') < datetime.now()) \
            and (inst['level'] == '*' or inst['level'] == level) \
            and (inst['server'] == '*' or inst['server'] == server) \
            and (inst['message'] == '*' or inst['message'] == message) \
-           and (inst['target'] == '*' or set(inst['target'].split(',')) == set(target.values())):
+           and (inst['target'] == '*' or diff_target == set(['*']) or set(target.values()) == set(inst['target'].split(',')) ):
             return True
 
     
