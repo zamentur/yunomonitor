@@ -783,10 +783,12 @@ def generate_monitoring_config():
             app = {
                 "id": app_settings['id'],
                 "name": app_manifest['name'],
-                "label": app_settings['label'],
+                "label": 'unspecified label',
                 "uris": uris,
                 "services": []
             }
+            if 'label' in app_settings:
+                app["label"] = app_settings['label']
             if 'services' in app_manifest:
                 app["services"] = app_manifest['services']
             if app['name'] in ["Borg", "Archivist"]:
