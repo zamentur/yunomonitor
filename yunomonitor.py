@@ -322,7 +322,7 @@ def main(argv):
 
     if config_file:
         with open(config_file, 'r') as local_config_file:
-            config = yaml.load(local_config_file)
+            config = yaml.safe_load(local_config_file)
     else:
         config = {
             'mails': [],
@@ -476,7 +476,7 @@ class ServerMonitor(Thread):
         # If a user specific configuration is in /etc, we use it
         if os.path.exists(local_config):
             with open(local_config, 'r') as local_config_file:
-                return yaml.load(local_config_file)
+                return yaml.safe_load(local_config_file)
         else:
 
             # If a cache configuration younger than 1h exists, we use it
@@ -485,7 +485,7 @@ class ServerMonitor(Thread):
                 minutes = (time.time() - os.path.getmtime(cache_config)) / 60
                 if minutes < CACHE_DURATION_IN_MINUTES:
                     with open(cache_config, 'r') as cache_config_file:
-                        config = yaml.load(cache_config_file)
+                        config = yaml.safe_load(cache_config_file)
                     
                     # In case the cache config is in a bad format (404 content...)
                     if not isinstance(config, str):
@@ -508,13 +508,13 @@ class ServerMonitor(Thread):
                 try:
                     r = requests.get(config_url, timeout=15)
                     assert r.status_code == 200, "Fail to download the configuration"
-                    config = yaml.load(decrypt(r.content))
+                    config = yaml.safe_load(decrypt(r.content))
                     assert not isinstance(config, str), "Misformed downloaded configuration"
                 except Exception as e:
                     logging.warning('Unable to download autoconfiguration file of %s, the old one will be used' % (self.server))
                     try:
                         with open(cache_config, 'r') as cache_config_file:
-                            cconfig = yaml.load(cache_config_file)
+                            cconfig = yaml.safe_load(cache_config_file)
                     except FileNotFoundError as e:
                         cconfig = ''
 
@@ -752,7 +752,7 @@ def generate_monitoring_config():
         for app_dir in apps_dir:
             try:
                 with open(os.path.join(app_dir, 'settings.yml'), 'r') as settings_file:
-                    app_settings = yaml.load(settings_file)
+                    app_settings = yaml.safe_load(settings_file)
                 with open(os.path.join(app_dir, 'manifest.json'), 'r') as manifest_file:
                     app_manifest = json.load(manifest_file)
             except:
@@ -1367,7 +1367,7 @@ def check_backuped(app, backup_app):
     return []
     # TODO protect passphrase
     if 'borg' in backup_app:
-        param = yaml.load(open('/etc/yunohost/apps/%s/settings.yml' % backup_app))
+        param = yaml.safe_load(open('/etc/yunohost/apps/%s/settings.yml' % backup_app))
         cmd = [
             "BORG_RSH='ssh -i /root/.ssh/id_%s_ed25519 '" % backup_app,
             "BORG_PASSPHRASE='%s'" % param['passphrase'], "borg", "list", '-P',
@@ -1430,7 +1430,7 @@ def check_ynh_upgrade():
     p = Popen(['yunohost', 'tools', "update", '--quiet', '--timeout', '30'], stdout=PIPE, stderr=PIPE)
     out, err = p.communicate()
     out = out.decode("utf-8").strip()
-    out = yaml.load(out)
+    out = yaml.safe_load(out)
    
     if 'apps' not in out:
         logging.debug('No output for yunohost tools update')
